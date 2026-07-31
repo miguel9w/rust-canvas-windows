@@ -179,8 +179,8 @@ fn cmd_start(_o: &Opts) -> ExitCode {
         return ExitCode::FAILURE;
     }
     match std::process::Command::new(&app_bin)
-        .env("GDK_BACKEND", "x11")
-        .env("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
+        // O app detecta o Wayland e se auto-configura no startup (software
+        // rendering do WebKit) — nenhuma env necessária.
         // Redireciona o stdout/stderr do filho: sem isso o processo segura o
         // pipe do shell e um `windowloom start | grep ...` nunca termina.
         .stdout(std::process::Stdio::null())

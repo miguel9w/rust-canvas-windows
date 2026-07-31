@@ -28,9 +28,9 @@ OpenCode/Pi Agent ──HTTP POST──▶ Rust App (:8081)
 # Build
 cargo build --release
 
-# Rodar (X11/XWayland + software rendering do WebKit — necessário em
-# setups NVIDIA/Wayland: sem essas env vars as janelas podem ficar pretas)
-GDK_BACKEND=x11 WEBKIT_DISABLE_DMABUF_RENDERER=1 cargo run --release
+# Rodar (auto-configuração: detecta Wayland e ativa o software rendering
+# do WebKit — funciona nativo no Wayland e no X11, sem env vars)
+cargo run --release
 
 # Criar uma janela via API
 curl -X POST http://localhost:8081 \

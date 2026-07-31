@@ -67,12 +67,16 @@ pub fn save(cfg: &Config) -> Result<(), String> {
 }
 
 /// Cria/remove `~/.config/autostart/windowloom.desktop`.
-/// O Exec usa `env` para injetar as env vars necessárias (X11 + software
-/// rendering do WebKit) — sem elas as janelas ficam pretas.
+/// O Exec é só o binário — o app detecta o Wayland e se auto-configura
+/// (software rendering do WebKit) no startup.
 pub fn apply_autostart(enabled: bool) -> Result<(), String> {
     let desktop = config_home().join("autostart").join("windowloom.desktop");
     // Remove o autostart com o nome antigo (pré-WindowLoom), se existir
-    let _ = std::fs::remove_file(config_home().join("autostart").join("rust-canvas-windows.desktop"));
+    let _ = std::fs::remove_file(
+        config_home()
+            .join("autostart")
+            .join("rust-canvas-windows.desktop"),
+    );
     if enabled {
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
         let content = format!(
@@ -80,7 +84,7 @@ pub fn apply_autostart(enabled: bool) -> Result<(), String> {
              Type=Application\n\
              Name=WindowLoom\n\
              Comment=Janelas JSX nativas\n\
-             Exec=env GDK_BACKEND=x11 WEBKIT_DISABLE_DMABUF_RENDERER=1 {}\n\
+             Exec={}\n\
              X-GNOME-Autostart-enabled=true\n",
             exe.display()
         );

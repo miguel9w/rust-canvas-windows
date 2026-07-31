@@ -8,9 +8,25 @@ mod window_manager;
 use std::sync::mpsc;
 
 fn main() {
+    // Auto-configuração do Wayland: o WebKit2GTK com DMABUF (GPU) falha no
+    // Wayland nativo ("Error 71 dispatching to Wayland display" ao criar a
+    // webview). Detectamos o Wayland e forçamos o software rendering ANTES
+    // do GTK/WebKit inicializarem — o app roda nativo Wayland sem env vars.
+    if std::env::var("WAYLAND_DISPLAY").is_ok()
+        && std::env::var("WEBKIT_DISABLE_DMABUF_RENDERER").is_err()
+    {
+        // SAFETY: no início do main, antes de spawnar qualquer thread —
+        // nenhuma outra thread lê/escreve env vars concorrentemente.
+        unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
+    }
+
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_timestamp_millis()
         .init();
+
+    if std::env::var("WAYLAND_DISPLAY").is_ok() {
+        log::info!("Wayland detectado — software rendering do WebKit ativado");
+    }
 
     let port: u16 = std::env::var("RUST_CANVAS_PORT")
         .ok()
