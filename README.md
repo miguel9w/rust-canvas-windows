@@ -126,9 +126,14 @@ O app fica na bandeja do sistema (StatusNotifierItem via libappindicator —
 funciona no KDE Plasma 6 e GNOME). **Ao iniciar, nenhuma janela abre** — só o
 tray. Fechar todas as janelas também não encerra o app. No menu do tray:
 
-- **Janela principal** — hub com menubar GTK (Arquivo/Janelas/Ajuda) e a
-  lista das janelas abertas (duplo-clique traz pra frente); também via
-  `windowloom main`
+- **Janela principal** — o hub de comando, com HeaderBar + menubar e 3 abas:
+  - **Janelas** — lista das abertas com ações (Topo / Fechar) e duplo-clique
+    pra trazer à frente; menu Arquivo tem "Fechar todas as janelas"
+  - **Modelos** — kit de widgets com 1 clique: Relógio, Contador, Gráfico de
+    barras, Gráfico de linha, Tabela e Formulário (que emite no appBus)
+  - **Eventos** — feed ao vivo do que os widgets emitiram no appBus
+  - Atalhos: **Ctrl+N** (nova janela), **Ctrl+Q** (sair)
+  - também via `windowloom main`
 - **Abrir widget...** — seletor de arquivo para escolher um `.jsx`/`.html` e
   criar a janela com o conteúdo (tamanho padrão vindo da configuração)
 - **Configurações** — janela com:

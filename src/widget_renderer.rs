@@ -187,6 +187,124 @@ pub fn config_widget() -> String {
 }"#.to_string()
 }
 
+/// Modelos de widget do hub (kit com 1 clique). Cada função retorna o JSX.
+pub fn modelo_relogio() -> String {
+    r#"function Widget() {
+  const [t, s] = React.useState(new Date().toLocaleTimeString());
+  setInterval(() => s(new Date().toLocaleTimeString()), 1000);
+  return React.createElement('div', { style: { textAlign: 'center', padding: 40, fontFamily: 'monospace', fontSize: 34, color: '#4ade80' } }, t);
+}"#.to_string()
+}
+
+pub fn modelo_contador() -> String {
+    r#"function Widget() {
+  const [c, s] = React.useState(0);
+  return React.createElement('div', { style: { textAlign: 'center', padding: 32, fontFamily: 'sans-serif' } },
+    React.createElement('h3', { style: { color: '#e2e8f0', margin: '0 0 16px' } }, 'Contador'),
+    React.createElement('button', { onClick: () => s(n => n + 1), style: { background: '#6366f1', color: '#fff', border: 'none', padding: '10px 28px', borderRadius: 8, cursor: 'pointer', fontSize: 15 } }, 'Cliques: ' + c));
+}"#.to_string()
+}
+
+pub fn modelo_grafico_barras() -> String {
+    r#"function Widget() {
+  const ref = React.useRef(null);
+  React.useEffect(function () {
+    const cv = ref.current, ctx = cv.getContext('2d');
+    const d = [12, 19, 8, 15, 22, 17];
+    const W = cv.width, H = cv.height, max = Math.max.apply(null, d);
+    ctx.fillStyle = '#0f172a'; ctx.fillRect(0, 0, W, H);
+    const slot = W / d.length, bw = slot * 0.55;
+    d.forEach(function (v, i) {
+      const h = (v / max) * (H - 34);
+      ctx.fillStyle = '#818cf8';
+      ctx.fillRect(i * slot + (slot - bw) / 2, H - h - 22, bw, h);
+      ctx.fillStyle = '#94a3b8'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(String(v), i * slot + slot / 2, H - 8);
+    });
+  }, []);
+  return React.createElement('div', { style: { padding: 16, fontFamily: 'sans-serif' } },
+    React.createElement('h3', { style: { color: '#e2e8f0', margin: '0 0 12px' } }, 'Vendas por mês'),
+    React.createElement('canvas', { ref: ref, width: 380, height: 210, style: { width: '100%', borderRadius: 10 } }));
+}"#.to_string()
+}
+
+pub fn modelo_grafico_linha() -> String {
+    r#"function Widget() {
+  const ref = React.useRef(null);
+  React.useEffect(function () {
+    const cv = ref.current, ctx = cv.getContext('2d');
+    const d = [8, 14, 11, 18, 16, 24, 21];
+    const W = cv.width, H = cv.height, max = Math.max.apply(null, d), min = Math.min.apply(null, d);
+    ctx.fillStyle = '#0f172a'; ctx.fillRect(0, 0, W, H);
+    const px = function (i) { return 30 + i * ((W - 50) / (d.length - 1)); };
+    const py = function (v) { return H - 24 - ((v - min) / (max - min)) * (H - 48); };
+    ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2; ctx.beginPath();
+    d.forEach(function (v, i) { i === 0 ? ctx.moveTo(px(i), py(v)) : ctx.lineTo(px(i), py(v)); });
+    ctx.stroke();
+    d.forEach(function (v, i) {
+      ctx.fillStyle = '#38bdf8'; ctx.beginPath(); ctx.arc(px(i), py(v), 3, 0, 7); ctx.fill();
+      ctx.fillStyle = '#94a3b8'; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(String(v), px(i), py(v) - 8);
+    });
+  }, []);
+  return React.createElement('div', { style: { padding: 16, fontFamily: 'sans-serif' } },
+    React.createElement('h3', { style: { color: '#e2e8f0', margin: '0 0 12px' } }, 'Receita semanal'),
+    React.createElement('canvas', { ref: ref, width: 380, height: 210, style: { width: '100%', borderRadius: 10 } }));
+}"#.to_string()
+}
+
+pub fn modelo_tabela() -> String {
+    r#"function Widget() {
+  const linhas = [
+    ['Produto', 'Preço', 'Vendas'],
+    ['Notebook Pro X', 'R$ 5.500', 42],
+    ['Monitor UltraWide', 'R$ 1.950', 78],
+    ['Teclado Mecânico', 'R$ 500', 120],
+    ['Mouse Wireless', 'R$ 210', 210],
+  ];
+  const estilo = { borderCollapse: 'collapse', width: '100%', fontSize: 13, fontFamily: 'sans-serif' };
+  return React.createElement('div', { style: { padding: 16, fontFamily: 'sans-serif' } },
+    React.createElement('h3', { style: { color: '#e2e8f0', margin: '0 0 12px' } }, 'Relatório de vendas'),
+    React.createElement('table', { style: estilo },
+      linhas.map(function (l, i) {
+        return React.createElement('tr', { key: i, style: { background: i === 0 ? '#1e1e2e' : '#111827', color: i === 0 ? '#818cf8' : '#cbd5e1' } },
+          l.map(function (c, j) { return React.createElement('td', { key: j, style: { padding: '8px 12px', border: '1px solid #1e293b' } }, String(c)); }));
+      })));
+}"#.to_string()
+}
+
+pub fn modelo_formulario() -> String {
+    r#"function Widget({ appBus }) {
+  const nome = React.useState('');
+  const email = React.useState('');
+  const enviado = React.useState(false);
+  function submit() {
+    appBus.emit('form:submit', { nome: nome[0], email: email[0], ts: Date.now() });
+    enviado[1](true);
+    setTimeout(function () { enviado[1](false); }, 2000);
+  }
+  const input = { background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '8px 10px', width: '100%', marginBottom: 10, fontSize: 13 };
+  return React.createElement('div', { style: { padding: 20, fontFamily: 'sans-serif' } },
+    React.createElement('h3', { style: { color: '#e2e8f0', margin: '0 0 16px' } }, 'Formulário de contato'),
+    React.createElement('input', { placeholder: 'Nome', value: nome[0], onChange: function (e) { nome[1](e.target.value); }, style: input }),
+    React.createElement('input', { placeholder: 'E-mail', value: email[0], onChange: function (e) { email[1](e.target.value); }, style: input }),
+    React.createElement('button', { onClick: submit, style: { background: '#10b981', color: '#fff', border: 'none', padding: '9px 24px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 } }, 'Enviar'),
+    enviado[0] ? React.createElement('div', { style: { color: '#4ade80', marginTop: 10, fontSize: 12 } }, 'Emitido no appBus (veja a aba Eventos!)') : null);
+}"#.to_string()
+}
+
+/// Lista de modelos disponíveis no hub (nome + função do JSX).
+pub fn modelos() -> Vec<(&'static str, fn() -> String)> {
+    vec![
+        ("Relógio", modelo_relogio),
+        ("Contador", modelo_contador),
+        ("Gráfico de barras", modelo_grafico_barras),
+        ("Gráfico de linha", modelo_grafico_linha),
+        ("Tabela", modelo_tabela),
+        ("Formulário", modelo_formulario),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

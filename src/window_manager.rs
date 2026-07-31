@@ -391,6 +391,25 @@ fn open_main_window(
     file_menu.append(&mi_settings);
 
     file_menu.append(&gtk::SeparatorMenuItem::new());
+    // Fechar todas as janelas
+    let mi_close_all = gtk::MenuItem::with_label("Fechar todas as janelas");
+    {
+        let w = windows.clone();
+        mi_close_all.connect_activate(move |_| {
+            let ids: Vec<String> = {
+                let map = w.lock().unwrap();
+                map.keys().cloned().collect()
+            };
+            for id in ids {
+                if let Some(entry) = w.lock().unwrap().get(&id) {
+                    entry.gtk_window.close();
+                }
+            }
+            log::info!("Todas as janelas fechadas pelo hub");
+        });
+    }
+    file_menu.append(&mi_close_all);
+    file_menu.append(&gtk::SeparatorMenuItem::new());
     let mi_quit = gtk::MenuItem::with_label("Sair");
     {
         let a = app.clone();
@@ -432,26 +451,143 @@ fn open_main_window(
     mi_help.set_submenu(Some(&help_menu));
     menubar.append(&mi_help);
 
-    // Corpo: lista das janelas abertas (duplo-clique = trazer pra frente)
-    let listbox = gtk::ListBox::new();
+    // HeaderBar: título + ações rápidas
+    let header = gtk::HeaderBar::new();
+    header.set_title(Some("WindowLoom"));
+    header.set_subtitle(Some("janelas JSX nativas"));
+    header.set_show_close_button(true);
+    {
+        let btn_new = gtk::Button::with_label("Nova janela");
+        let w = windows.clone();
+        let b = base_uri.to_string();
+        let a = app.clone();
+        let c = config.clone();
+        let e = events.clone();
+        btn_new.connect_clicked(move |_| {
+            open_widget_dialog(&a, &w, &b, &c, &e);
+        });
+        header.pack_start(&btn_new);
+
+        let btn_settings = gtk::Button::with_label("Configurações");
+        let w = windows.clone();
+        let b = base_uri.to_string();
+        let a = app.clone();
+        let c = config.clone();
+        let e = events.clone();
+        btn_settings.connect_clicked(move |_| {
+            let (width, height) = {
+                let cfg = c.lock().unwrap();
+                (cfg.width, cfg.height)
+            };
+            let state = WindowState {
+                id: String::new(),
+                title: "Configurações".into(),
+                jsx: widget_renderer::config_widget(),
+                width,
+                height,
+                x: 200,
+                y: 150,
+            };
+            if let Err(err) = create_window_impl(&w, &a, &b, &c, &e, &state) {
+                log::error!("falha ao abrir configurações: {}", err);
+            }
+        });
+        header.pack_end(&btn_settings);
+    }
+    win.set_titlebar(Some(&header));
+
+    // Notebook: Janelas / Modelos / Eventos
+    let notebook = gtk::Notebook::new();
+
+    let page_windows = gtk::ListBox::new();
+    notebook.append_page(&page_windows, Some(&gtk::Label::new(Some("Janelas"))));
+
+    let page_modelos = gtk::FlowBox::new();
+    page_modelos.set_max_children_per_line(3);
+    page_modelos.set_selection_mode(gtk::SelectionMode::None);
+    notebook.append_page(&page_modelos, Some(&gtk::Label::new(Some("Modelos"))));
+
+    let page_events = gtk::ListBox::new();
+    notebook.append_page(&page_events, Some(&gtk::Label::new(Some("Eventos"))));
+
+    // Modelos — kit de widgets com 1 clique (populado uma vez)
+    for (nome, jsx_fn) in widget_renderer::modelos() {
+        let btn = gtk::Button::with_label(nome);
+        let jsx = jsx_fn();
+        let w = windows.clone();
+        let b = base_uri.to_string();
+        let a = app.clone();
+        let c = config.clone();
+        let e = events.clone();
+        let nome_owned = nome.to_string();
+        btn.connect_clicked(move |_| {
+            let (width, height) = {
+                let cfg = c.lock().unwrap();
+                (cfg.width, cfg.height)
+            };
+            let state = WindowState {
+                id: String::new(),
+                title: nome_owned.clone(),
+                jsx: jsx.clone(),
+                width,
+                height,
+                x: 120,
+                y: 120,
+            };
+            if let Err(err) = create_window_impl(&w, &a, &b, &c, &e, &state) {
+                log::error!("modelo {}: {}", nome_owned, err);
+            }
+        });
+        let child = gtk::FlowBoxChild::new();
+        child.add(&btn);
+        page_modelos.add(&child);
+    }
+
     let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
     vbox.pack_start(&menubar, false, false, 0);
-    vbox.pack_start(&listbox, true, true, 0);
+    vbox.pack_start(&notebook, true, true, 0);
     win.add(&vbox);
 
-    // Timer: mantém submenu + lista sincronizados
+    // Atalhos: Ctrl+N (nova janela) / Ctrl+Q (sair)
+    {
+        let w = windows.clone();
+        let b = base_uri.to_string();
+        let a = app.clone();
+        let c = config.clone();
+        let e = events.clone();
+        win.connect_key_press_event(move |_, ev| {
+            if ev.state().contains(gtk::gdk::ModifierType::CONTROL_MASK) {
+                let k = ev.keyval();
+                if k == gtk::gdk::keys::constants::n {
+                    open_widget_dialog(&a, &w, &b, &c, &e);
+                    return glib::Propagation::Stop;
+                }
+                if k == gtk::gdk::keys::constants::q {
+                    log::info!("Saindo pelo atalho Ctrl+Q");
+                    a.quit();
+                    return glib::Propagation::Stop;
+                }
+            }
+            glib::Propagation::Proceed
+        });
+    }
+
+    // Timer: submenu Janelas + lista com ações + feed de eventos
     let w_owned = windows.clone();
     let w1 = w_owned.clone();
     let w2 = w_owned.clone();
+    let ev = events.clone();
     glib::timeout_add_local(std::time::Duration::from_secs(2), move || {
         repopulate_windows_menu(&win_sub, &w1);
-        for child in listbox.children() {
-            listbox.remove(&child);
+
+        // Lista de janelas (com ações: Topo / Fechar)
+        for child in page_windows.children() {
+            page_windows.remove(&child);
         }
         let map = w2.lock().unwrap();
         if map.is_empty() {
             let lbl = gtk::Label::new(Some("(nenhuma janela aberta)"));
-            listbox.add(&lbl);
+            page_windows.add(&lbl);
         }
         for (id, entry) in map.iter() {
             let row = gtk::ListBoxRow::new();
@@ -465,17 +601,62 @@ fn open_main_window(
             dim.set_xalign(1.0);
             hbox.pack_start(&lbl, true, true, 0);
             hbox.pack_start(&dim, false, false, 0);
+
+            let btn_top = gtk::Button::with_label("Topo");
+            let w4 = w_owned.clone();
+            let wid4 = id.clone();
+            btn_top.connect_clicked(move |_| {
+                if let Some(entry) = w4.lock().unwrap().get_mut(&wid4) {
+                    entry.keep_above = !entry.keep_above;
+                    entry.gtk_window.set_keep_above(entry.keep_above);
+                    log::info!("Janela {} keep_above={}", wid4, entry.keep_above);
+                }
+            });
+            hbox.pack_end(&btn_top, false, false, 0);
+
+            let btn_close = gtk::Button::with_label("Fechar");
+            let w5 = w_owned.clone();
+            let wid5 = id.clone();
+            btn_close.connect_clicked(move |_| {
+                if let Some(entry) = w5.lock().unwrap().get(&wid5) {
+                    entry.gtk_window.close();
+                }
+            });
+            hbox.pack_end(&btn_close, false, false, 0);
+
             row.add(&hbox);
-            let wid = id.clone();
-            let w3 = w_owned.clone();
+            let wid6 = id.clone();
+            let w6 = w_owned.clone();
             row.connect_activate(move |_| {
-                if let Some(e) = w3.lock().unwrap().get(&wid) {
+                if let Some(e) = w6.lock().unwrap().get(&wid6) {
                     e.gtk_window.present();
                 }
             });
-            listbox.add(&row);
+            page_windows.add(&row);
         }
-        listbox.show_all();
+        page_windows.show_all();
+
+        // Feed de eventos (do EventLog — polling)
+        for child in page_events.children() {
+            page_events.remove(&child);
+        }
+        let recent = ev.recent(15);
+        if recent.is_empty() {
+            let lbl = gtk::Label::new(Some("(sem eventos — emita algo num widget, ex: Formulário)"));
+            page_events.add(&lbl);
+        }
+        for rec in recent {
+            let row = gtk::ListBoxRow::new();
+            let lbl = gtk::Label::new(Some(&format!(
+                "{} :: {} — {}",
+                rec.window, rec.evt, rec.ts
+            )));
+            lbl.set_xalign(0.0);
+            row.add(&lbl);
+            page_events.add(&row);
+        }
+        page_events.show_all();
+
         glib::ControlFlow::Continue
     });
 
