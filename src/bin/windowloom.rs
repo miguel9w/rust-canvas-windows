@@ -161,6 +161,24 @@ fn cmd_list(o: &Opts) -> ExitCode {
     }
 }
 
+fn cmd_main(o: &Opts) -> ExitCode {
+    let body = serde_json::json!({ "action": "OPEN_MAIN_WINDOW" });
+    match post(&o.port, "OPEN_MAIN_WINDOW", body) {
+        Ok(v) if v["success"] == true => {
+            println!("✅ janela principal aberta");
+            ExitCode::SUCCESS
+        }
+        Ok(v) => {
+            eprintln!("❌ {}", v["error"].as_str().unwrap_or("erro desconhecido"));
+            ExitCode::FAILURE
+        }
+        Err(e) => {
+            eprintln!("❌ falha de conexão: {}", e);
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn cmd_events(o: &Opts) -> ExitCode {
     let n: usize = o.pos.first().and_then(|s| s.parse().ok()).unwrap_or(10);
     let url = format!("http://127.0.0.1:{}/events", o.port);
@@ -197,6 +215,7 @@ fn main() -> ExitCode {
         "update" => cmd_update(&opts),
         "close" => cmd_close(&opts),
         "list" => cmd_list(&opts),
+        "main" => cmd_main(&opts),
         "events" => cmd_events(&opts),
         _ => {
             eprintln!("comando desconhecido: {}", cmd);

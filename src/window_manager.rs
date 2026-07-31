@@ -137,6 +137,18 @@ impl WindowManager {
         let map = self.windows.lock().unwrap();
         map.values().map(|e| e.state.clone()).collect()
     }
+
+    /// Abre a janela principal (hub com menubar GTK). Chamado pelo tray ou
+    /// via API/CLI (action OPEN_MAIN_WINDOW).
+    pub fn open_main_window(&self) {
+        open_main_window(
+            &self.app,
+            &self.windows,
+            &self.base_uri,
+            &self.config,
+            &self.events,
+        );
+    }
 }
 
 /// Shared window-creation logic. Works both from the `activate` handler
@@ -313,6 +325,162 @@ fn create_window_impl(
     Ok(id)
 }
 
+/// Janela principal (hub) com menubar GTK clássica — Arquivo/Janelas/Ajuda —
+/// e lista das janelas abertas (duplo-clique traz pra frente). A lista e o
+/// submenu "Janelas" são atualizados por timer (2s), como no tray.
+fn open_main_window(
+    app: &Application,
+    windows: &Arc<Mutex<HashMap<String, WindowEntry>>>,
+    base_uri: &str,
+    config: &std::sync::Arc<std::sync::Mutex<crate::config::Config>>,
+    events: &std::sync::Arc<crate::events::EventLog>,
+) {
+    let win = ApplicationWindow::new(app);
+    win.set_title("WindowLoom");
+    win.set_default_size(520, 380);
+    if let Some(icon) = app_icon_pixbuf() {
+        win.set_icon(Some(&icon));
+    }
+
+    let menubar = gtk::MenuBar::new();
+
+    // Arquivo → Abrir widget... / Configurações / Sair
+    let mi_file = gtk::MenuItem::with_label("Arquivo");
+    let file_menu = gtk::Menu::new();
+
+    let mi_open = gtk::MenuItem::with_label("Abrir widget...");
+    {
+        let w = windows.clone();
+        let b = base_uri.to_string();
+        let a = app.clone();
+        let c = config.clone();
+        let e = events.clone();
+        mi_open.connect_activate(move |_| {
+            open_widget_dialog(&a, &w, &b, &c, &e);
+        });
+    }
+    file_menu.append(&mi_open);
+
+    let mi_settings = gtk::MenuItem::with_label("Configurações");
+    {
+        let w = windows.clone();
+        let b = base_uri.to_string();
+        let a = app.clone();
+        let c = config.clone();
+        let e = events.clone();
+        mi_settings.connect_activate(move |_| {
+            let (width, height) = {
+                let cfg = c.lock().unwrap();
+                (cfg.width, cfg.height)
+            };
+            let state = WindowState {
+                id: String::new(),
+                title: "Configurações".into(),
+                jsx: widget_renderer::config_widget(),
+                width,
+                height,
+                x: 200,
+                y: 150,
+            };
+            if let Err(err) = create_window_impl(&w, &a, &b, &c, &e, &state) {
+                log::error!("falha ao abrir configurações: {}", err);
+            }
+        });
+    }
+    file_menu.append(&mi_settings);
+
+    file_menu.append(&gtk::SeparatorMenuItem::new());
+    let mi_quit = gtk::MenuItem::with_label("Sair");
+    {
+        let a = app.clone();
+        mi_quit.connect_activate(move |_| {
+            log::info!("Saindo pelo menu principal");
+            a.quit();
+        });
+    }
+    file_menu.append(&mi_quit);
+    mi_file.set_submenu(Some(&file_menu));
+    menubar.append(&mi_file);
+
+    // Janelas → submenu dinâmico
+    let mi_windows = gtk::MenuItem::with_label("Janelas");
+    let win_sub = gtk::Menu::new();
+    mi_windows.set_submenu(Some(&win_sub));
+    menubar.append(&mi_windows);
+
+    // Ajuda → Sobre
+    let mi_help = gtk::MenuItem::with_label("Ajuda");
+    let help_menu = gtk::Menu::new();
+    let mi_about = gtk::MenuItem::with_label("Sobre");
+    {
+        let icon = app_icon_pixbuf();
+        mi_about.connect_activate(move |_| {
+            let dlg = gtk::AboutDialog::new();
+            dlg.set_program_name("WindowLoom");
+            dlg.set_version(Some(env!("CARGO_PKG_VERSION")));
+            dlg.set_comments(Some("Janelas nativas com widgets JSX — controladas por agente."));
+            dlg.set_website(Some("https://github.com/miguel9w/windowloom"));
+            if let Some(ic) = &icon {
+                dlg.set_logo(Some(ic));
+            }
+            dlg.connect_response(|d, _| d.close());
+            dlg.show_all();
+        });
+    }
+    help_menu.append(&mi_about);
+    mi_help.set_submenu(Some(&help_menu));
+    menubar.append(&mi_help);
+
+    // Corpo: lista das janelas abertas (duplo-clique = trazer pra frente)
+    let listbox = gtk::ListBox::new();
+    let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    vbox.pack_start(&menubar, false, false, 0);
+    vbox.pack_start(&listbox, true, true, 0);
+    win.add(&vbox);
+
+    // Timer: mantém submenu + lista sincronizados
+    let w_owned = windows.clone();
+    let w1 = w_owned.clone();
+    let w2 = w_owned.clone();
+    glib::timeout_add_local(std::time::Duration::from_secs(2), move || {
+        repopulate_windows_menu(&win_sub, &w1);
+        for child in listbox.children() {
+            listbox.remove(&child);
+        }
+        let map = w2.lock().unwrap();
+        if map.is_empty() {
+            let lbl = gtk::Label::new(Some("(nenhuma janela aberta)"));
+            listbox.add(&lbl);
+        }
+        for (id, entry) in map.iter() {
+            let row = gtk::ListBoxRow::new();
+            let hbox = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+            let lbl = gtk::Label::new(Some(&entry.state.title));
+            lbl.set_xalign(0.0);
+            let dim = gtk::Label::new(Some(&format!(
+                "{}x{}",
+                entry.state.width, entry.state.height
+            )));
+            dim.set_xalign(1.0);
+            hbox.pack_start(&lbl, true, true, 0);
+            hbox.pack_start(&dim, false, false, 0);
+            row.add(&hbox);
+            let wid = id.clone();
+            let w3 = w_owned.clone();
+            row.connect_activate(move |_| {
+                if let Some(e) = w3.lock().unwrap().get(&wid) {
+                    e.gtk_window.present();
+                }
+            });
+            listbox.add(&row);
+        }
+        listbox.show_all();
+        glib::ControlFlow::Continue
+    });
+
+    win.show_all();
+}
+
 /// System tray icon + context menu (libappindicator / StatusNotifierItem).
 /// Closing all windows keeps the app alive in the tray (the hidden
 /// placeholder prevents GTK from quitting).
@@ -324,6 +492,21 @@ fn setup_tray(
     events: &std::sync::Arc<crate::events::EventLog>,
 ) {
     let mut menu = gtk::Menu::new();
+
+    // "Janela principal" — hub com menubar GTK (Arquivo/Janelas/Ajuda)
+    let mi_main = gtk::MenuItem::with_label("Janela principal");
+    {
+        let w = windows.clone();
+        let b = base_uri.to_string();
+        let a = app.clone();
+        let c = config.clone();
+        let e = events.clone();
+        mi_main.connect_activate(move |_| {
+            open_main_window(&a, &w, &b, &c, &e);
+        });
+    }
+    menu.append(&mi_main);
+    menu.append(&gtk::SeparatorMenuItem::new());
 
     // "Nova janela" → file chooser para selecionar um widget .jsx/.html
     let mi_new = gtk::MenuItem::with_label("Abrir widget...");

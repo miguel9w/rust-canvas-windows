@@ -25,6 +25,7 @@ pub enum GtkCommand {
     UpdateWindow(WindowCommand, mpsc::Sender<serde_json::Value>),
     CloseWindow(WindowCommand, mpsc::Sender<serde_json::Value>),
     ListWindows(mpsc::Sender<serde_json::Value>),
+    OpenMainWindow(mpsc::Sender<serde_json::Value>),
     Shutdown,
 }
 
@@ -86,6 +87,9 @@ pub fn start_ipc_server(
                 "UPDATE_WINDOW" | "update_window" => GtkCommand::UpdateWindow(cmd, reply_tx),
                 "CLOSE_WINDOW" | "close_window" => GtkCommand::CloseWindow(cmd, reply_tx),
                 "LIST_WINDOWS" | "list_windows" => GtkCommand::ListWindows(reply_tx),
+                "OPEN_MAIN_WINDOW" | "open_main_window" | "main" => {
+                    GtkCommand::OpenMainWindow(reply_tx)
+                }
                 other => {
                     let resp = WindowResponse {
                         success: false,

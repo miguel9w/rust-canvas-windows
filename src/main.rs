@@ -121,6 +121,10 @@ fn main() {
                         .collect();
                     let _ = reply.send(serde_json::json!({"success": true, "windows": list}));
                 }
+                ipc_server::GtkCommand::OpenMainWindow(reply) => {
+                    wm.open_main_window();
+                    let _ = reply.send(serde_json::json!({"success": true}));
+                }
                 ipc_server::GtkCommand::Shutdown => {
                     log::info!("Shutting down...");
                     return glib::ControlFlow::Break;

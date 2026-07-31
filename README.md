@@ -71,6 +71,7 @@ EOF
 windowloom list                    # tabela com id/título/tamanho
 windowloom update <id> novo.jsx    # troca o conteúdo ao vivo
 windowloom close <id>
+windowloom main                    # abre a janela principal (menubar GTK)
 windowloom events [n]              # últimos n eventos do appBus
 
 # Porta: --port N ou RUST_CANVAS_PORT (default 8081)
@@ -125,6 +126,9 @@ O app fica na bandeja do sistema (StatusNotifierItem via libappindicator —
 funciona no KDE Plasma 6 e GNOME). **Ao iniciar, nenhuma janela abre** — só o
 tray. Fechar todas as janelas também não encerra o app. No menu do tray:
 
+- **Janela principal** — hub com menubar GTK (Arquivo/Janelas/Ajuda) e a
+  lista das janelas abertas (duplo-clique traz pra frente); também via
+  `windowloom main`
 - **Abrir widget...** — seletor de arquivo para escolher um `.jsx`/`.html` e
   criar a janela com o conteúdo (tamanho padrão vindo da configuração)
 - **Configurações** — janela com:
