@@ -1,8 +1,15 @@
 /// Generates the HTML that wraps a JSX widget with React + Babel Standalone
 /// for runtime compilation, injected into WebKit.
 pub fn build_widget_html(jsx: &str, props: &str) -> String {
-    // Sanitize JSX input — basic escaping to prevent injection
-    let safe_jsx = jsx.replace('<', "&lt;").replace('>', "&gt;");
+    // Escape for embedding inside a JS template literal (backticks, ${).
+    // NOTE: do NOT escape < > here — the JSX is compiled by Babel as
+    // JavaScript, where < > are valid tokens (arrow functions, comparisons).
+    // Escaping them breaks every widget using `=>` (see Unexpected token).
+    let safe_jsx = jsx
+        .replace('\\', "\\\\")
+        .replace('`', "\\`")
+        .replace("${", "\\${")
+        .replace("</script", "<\\/script");
     let safe_props = if props.is_empty() || props == "null" {
         "{}".to_string()
     } else {
@@ -34,9 +41,9 @@ pub fn build_widget_html(jsx: &str, props: &str) -> String {
 </head>
 <body>
   <div id="root"><div class="loading">⬡ Loading widget...</div></div>
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="/vendor/react.production.min.js"></script>
+  <script src="/vendor/react-dom.production.min.js"></script>
+  <script src="/vendor/babel.min.js"></script>
   <script>
     // Props injected by the window manager
     const WIDGET_PROPS = {safe_props};
@@ -50,7 +57,13 @@ pub fn build_widget_html(jsx: &str, props: &str) -> String {
       
       const Component = new Function('React', 'props', code);
       const root = React.createElement(Component, WIDGET_PROPS);
-      ReactDOM.createRoot(document.getElementById('root')).render(root);
+      // Render off-DOM, then attach: WebKit software rendering (DMABUF off)
+      // never paints in-place DOM mutations from ReactDOM.render — but a
+      // fresh subtree appended to the document paints correctly. This keeps
+      // React's DOM and event delegation intact.
+      const mount = document.createElement('div');
+      ReactDOM.render(root, mount);
+      document.getElementById('root').appendChild(mount);
     }} catch (err) {{
       document.getElementById('root').innerHTML = 
         `<div class="error">❌ ${{err.message}}\n\n${{err.stack?.split('\\n').slice(0,5).join('\\n') || ''}}</div>`;
@@ -74,4 +87,47 @@ pub fn blank_widget() -> String {
     }, 'Clicked ' + count + ' times'),
   );
 }"#.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preserves_js_tokens_that_use_angle_brackets() {
+        // Regression test: escaping < > used to turn `=>` into `=&gt;`,
+        // breaking Babel with "Unexpected token" on every arrow function.
+        let html = build_widget_html("function W(){ return x => x + 1; }", "{}");
+        assert!(html.contains("x => x + 1"), "arrow function must survive verbatim");
+        assert!(!html.contains("&gt;"), "no HTML-entity mangling of JS");
+        assert!(!html.contains("&lt;"), "no HTML-entity mangling of JS");
+    }
+
+    #[test]
+    fn escapes_template_literal_and_script_close() {
+        let html = build_widget_html("const s = `tick ${1}`;", "{}");
+        assert!(html.contains("\\`tick \\${1}\\`"), "backtick and dollar-brace escaped for template literal");
+        let html2 = build_widget_html("const s = '</script>';", "{}");
+        assert!(
+            html2.contains("<\\/script>"),
+            "script close inside JSX escaped (the page's own </script> tags are unrelated)"
+        );
+    }
+
+    #[test]
+    fn injects_props_json() {
+        let html = build_widget_html("function W(){}", r#"{"name":"Miguel"}"#);
+        assert!(html.contains(r#"const WIDGET_PROPS = {"name":"Miguel"};"#));
+    }
+
+    #[test]
+    fn uses_offdom_mount_render() {
+        // Regression: WebKit software rendering (WEBKIT_DISABLE_DMABUF_RENDERER)
+        // never paints in-place DOM mutations from ReactDOM.render — black
+        // windows. The widget must be rendered off-DOM and appended.
+        let html = build_widget_html("function W(){}", "{}");
+        assert!(html.contains("ReactDOM.render(root, mount)"));
+        assert!(html.contains("document.getElementById('root').appendChild(mount)"));
+        assert!(!html.contains("createRoot"), "createRoot must not be used");
+    }
 }

@@ -26,25 +26,23 @@ fn main() {
     // Channel: HTTP server thread -> GTK main thread
     let (tx, rx) = mpsc::channel::<ipc_server::GtkCommand>();
 
-    // Initialize window manager on the main thread
-    let wm = window_manager::WindowManager::new();
+    // Initialize window manager on the main thread.
+    // Base URI points at the local IPC server so `/vendor/*` scripts
+    // (React/Babel bundles) are served by the app itself — no CDN, no network.
+    let base_uri = format!("http://127.0.0.1:{}/", port);
+    let wm = window_manager::WindowManager::new(base_uri);
 
-    // Create a demo window on startup
-    {
-        let demo_state = types::WindowState {
-            id: String::new(),
-            title: "🧊 Rust Canvas".into(),
-            jsx: widget_renderer::blank_widget(),
-            width: 600,
-            height: 400,
-            x: 200,
-            y: 150,
-        };
-        match wm.create_window(demo_state) {
-            Ok(id) => println!("✅ Demo window created: {}", id),
-            Err(e) => println!("⚠️  Could not create demo window: {}", e),
-        }
-    }
+    // Demo window — created inside the GtkApplication `activate` handler
+    // (GtkApplicationWindow must not be created before app.run()).
+    let startup_windows = vec![types::WindowState {
+        id: String::new(),
+        title: "🧊 Rust Canvas".into(),
+        jsx: widget_renderer::blank_widget(),
+        width: 600,
+        height: 400,
+        x: 200,
+        y: 150,
+    }];
 
     // Spawn HTTP server in background thread
     let tx_clone = tx.clone();
@@ -109,5 +107,5 @@ fn main() {
     });
 
     // Run GTK main loop (blocks)
-    wm.run();
+    wm.run(startup_windows);
 }

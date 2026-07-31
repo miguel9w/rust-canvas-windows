@@ -1,9 +1,18 @@
+use std::fs::File;
+use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
 
-use tiny_http::{Header, Response, Server};
+use tiny_http::{Header, Method, Response, Server};
 
 use crate::types::{WindowCommand, WindowResponse};
+
+/// Vendored JS bundles served locally (no CDN dependency at runtime).
+const VENDOR_FILES: [&str; 3] = [
+    "react.production.min.js",
+    "react-dom.production.min.js",
+    "babel.min.js",
+];
 
 /// Commands sent from the HTTP server to the GTK thread
 pub enum GtkCommand {
@@ -23,6 +32,12 @@ pub fn start_ipc_server(port: u16, tx: mpsc::Sender<GtkCommand>) -> Result<(), S
 
     thread::spawn(move || {
         for mut request in server.incoming_requests() {
+            // GET /vendor/* → serve vendored JS bundles (local, no CDN)
+            if request.method() == &Method::Get {
+                serve_vendor(request);
+                continue;
+            }
+
             let mut body = String::new();
             if let Err(e) = request.as_reader().read_to_string(&mut body) {
                 log::error!("Failed to read request body: {}", e);
@@ -79,4 +94,26 @@ pub fn start_ipc_server(port: u16, tx: mpsc::Sender<GtkCommand>) -> Result<(), S
     });
 
     Ok(())
+}
+
+/// Serves a vendored JS bundle from `<project>/vendor/` (whitelisted filenames only).
+fn serve_vendor(request: tiny_http::Request) {
+    let url = request.url().to_string();
+    let name = url.strip_prefix("/vendor/").unwrap_or("").split('/').next().unwrap_or("");
+
+    if !VENDOR_FILES.contains(&name) {
+        let _ = request.respond(Response::from_string("not found").with_status_code(404));
+        return;
+    }
+
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("vendor").join(name);
+    match File::open(&path) {
+        Ok(file) => {
+            let h = Header::from_bytes(&b"Content-Type"[..], &b"application/javascript"[..]).unwrap();
+            let _ = request.respond(Response::from_file(file).with_header(h));
+        }
+        Err(_) => {
+            let _ = request.respond(Response::from_string("not found").with_status_code(404));
+        }
+    }
 }

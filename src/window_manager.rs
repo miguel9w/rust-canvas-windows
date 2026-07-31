@@ -11,6 +11,7 @@ use crate::widget_renderer;
 
 pub struct WindowManager {
     app: Application,
+    base_uri: String,
     windows: Arc<Mutex<HashMap<String, WindowEntry>>>,
 }
 
@@ -21,18 +22,25 @@ struct WindowEntry {
 }
 
 impl WindowManager {
-    pub fn new() -> Self {
+    /// `base_uri` is the base URL for the HTML loaded into webviews (used to
+    /// resolve `/vendor/*` script paths against the local IPC server).
+    pub fn new(base_uri: String) -> Self {
         let app = Application::new(Some("com.canvas.rust-windows"), Default::default());
         Self {
             app,
+            base_uri,
             windows: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     /// Run the GTK main loop (blocking, should be called from main thread).
-    pub fn run(&self) {
+    /// Startup windows are created inside the `activate` handler — the only
+    /// correct place to create `GtkApplicationWindow`s (creating them before
+    /// `app.run()` triggers GTK init-order crashes on some backends, e.g. Wayland).
+    pub fn run(&self, startup: Vec<WindowState>) {
         let windows = self.windows.clone();
         let app = self.app.clone();
+        let base_uri = self.base_uri.clone();
 
         // Create a hidden placeholder so GTK doesn't exit
         app.connect_activate(move |app| {
@@ -41,67 +49,25 @@ impl WindowManager {
             hidden.set_opacity(0.0);
             hidden.set_decorated(false);
             hidden.show_all();
+
+            // Create any startup windows now that the app is active
+            for state in &startup {
+                if let Err(e) = create_window_impl(&windows, app, &base_uri, state) {
+                    log::error!("Failed to create startup window {}: {}", state.title, e);
+                }
+            }
         });
 
-        // Wake up the app
-        app.activate();
+        // `app.run()` registers the application and fires `activate` itself —
+        // calling `app.activate()` manually before `run()` hits
+        // "application->priv->is_registered" and the handler never runs.
         app.run();
-    }
-
-    fn create_window_inner(
-        &self,
-        state: &WindowState,
-    ) -> Result<String, String> {
-        let id = if state.id.is_empty() {
-            Uuid::new_v4().to_string()
-        } else {
-            state.id.clone()
-        };
-
-        let win = ApplicationWindow::new(&self.app);
-        win.set_title(&state.title);
-        win.set_default_size(state.width as i32, state.height as i32);
-        if state.x != 0 || state.y != 0 {
-            win.move_(state.x, state.y);
-        }
-
-        let web_context = WebContext::default().unwrap();
-        let webview = WebView::with_context(&web_context);
-        webview.set_hexpand(true);
-        webview.set_vexpand(true);
-        win.add(&webview);
-
-        let html = widget_renderer::build_widget_html(&state.jsx, "{}");
-        webview.load_html(&html, None);
-
-        let mut map = self.windows.lock().unwrap();
-        let entry = WindowEntry {
-            state: WindowState {
-                id: id.clone(),
-                ..state.clone()
-            },
-            gtk_window: win.clone(),
-            webview,
-        };
-        map.insert(id.clone(), entry);
-
-        win.show_all();
-
-        // Handle close
-        let windows_clone = self.windows.clone();
-        let id_clone = id.clone();
-        win.connect_delete_event(move |_, _| {
-            let mut map = windows_clone.lock().unwrap();
-            map.remove(&id_clone);
-            glib::Propagation::Proceed
-        });
-
-        Ok(id)
     }
 
     /// Create a new native window — must be called from the GTK thread.
     pub fn create_window(&self, state: WindowState) -> Result<String, String> {
-        self.create_window_inner(&state)
+        let windows = self.windows.clone();
+        create_window_impl(&windows, &self.app, &self.base_uri, &state)
     }
 
     /// Close a window by ID.
@@ -132,4 +98,65 @@ impl WindowManager {
         let map = self.windows.lock().unwrap();
         map.values().map(|e| e.state.clone()).collect()
     }
+}
+
+/// Shared window-creation logic. Works both from the `activate` handler
+/// (startup windows) and from IPC-triggered creation.
+fn create_window_impl(
+    windows: &Arc<Mutex<HashMap<String, WindowEntry>>>,
+    app: &Application,
+    base_uri: &str,
+    state: &WindowState,
+) -> Result<String, String> {
+    let id = if state.id.is_empty() {
+        Uuid::new_v4().to_string()
+    } else {
+        state.id.clone()
+    };
+
+    let win = ApplicationWindow::new(app);
+    win.set_title(&state.title);
+    win.set_default_size(state.width as i32, state.height as i32);
+    if state.x != 0 || state.y != 0 {
+        win.move_(state.x, state.y);
+    }
+
+    let web_context = WebContext::default().unwrap();
+    let webview = WebView::with_context(&web_context);
+    webview.set_hexpand(true);
+    webview.set_vexpand(true);
+    win.add(&webview);
+
+    // JSX widgets get wrapped in the React/Babel template; raw HTML
+    // (anything starting with `<`) is loaded verbatim.
+    let html = if state.jsx.trim_start().starts_with('<') {
+        state.jsx.clone()
+    } else {
+        widget_renderer::build_widget_html(&state.jsx, "{}")
+    };
+    webview.load_html(&html, Some(base_uri));
+
+    let mut map = windows.lock().unwrap();
+    let entry = WindowEntry {
+        state: WindowState {
+            id: id.clone(),
+            ..state.clone()
+        },
+        gtk_window: win.clone(),
+        webview,
+    };
+    map.insert(id.clone(), entry);
+
+    win.show_all();
+
+    // Handle close
+    let windows_clone = windows.clone();
+    let id_clone = id.clone();
+    win.connect_delete_event(move |_, _| {
+        let mut map = windows_clone.lock().unwrap();
+        map.remove(&id_clone);
+        glib::Propagation::Proceed
+    });
+
+    Ok(id)
 }
