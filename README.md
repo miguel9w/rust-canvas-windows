@@ -74,6 +74,27 @@ EOF
 
 Exemplos prontos em `examples/` (`contador.jsx`, `html-cru.html`).
 
+## Widgets do IAS-CANVAS-TOOL (`appBus`)
+
+Widgets no padrão `function Widget({ appBus })` funcionam: o template injeta
+um bus de eventos **roteado pelo app** (cada janela é uma webview com
+`window` próprio). `appBus.emit('evt', data)` numa janela chega a todos os
+ouvintes `appBus.on('evt', fn)` das outras janelas — via bridge nativo
+(`window.webkit.messageHandlers.canvasBus` → Rust → `run_javascript`).
+
+Fluxo típico (dashboard corporativo):
+
+```bash
+./scripts/widget.sh ~/git_repos/canvas/IAS-CANVAS-TOOL/widgets-database/business/corp-dados.jsx
+./scripts/widget.sh ~/git_repos/canvas/IAS-CANVAS-TOOL/widgets-database/business/corp-vendas.jsx
+./scripts/widget.sh ~/git_repos/canvas/IAS-CANVAS-TOOL/widgets-database/business/corp-fluxo-caixa.jsx
+./scripts/widget.sh ~/git_repos/canvas/IAS-CANVAS-TOOL/widgets-database/business/corp-metas.jsx
+./scripts/widget.sh ~/git_repos/canvas/IAS-CANVAS-TOOL/widgets-database/business/corp-precos.jsx
+```
+
+Clique em **Carregar ▶** no corp-dados — os outros 4 widgets recebem os
+dados via bus e renderizam (gráficos em Canvas 2D).
+
 ## System Tray
 
 O app fica na bandeja do sistema (StatusNotifierItem via libappindicator —

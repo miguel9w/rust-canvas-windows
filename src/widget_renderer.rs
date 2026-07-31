@@ -45,8 +45,40 @@ pub fn build_widget_html(jsx: &str, props: &str) -> String {
   <script src="/vendor/react-dom17.production.min.js"></script>
   <script src="/vendor/babel.min.js"></script>
   <script>
-    // Props injected by the window manager
-    const WIDGET_PROPS = {safe_props};
+    // Bus de eventos do padrão IAS-CANVAS-TOOL. Cada janela é uma webview
+    // com window próprio, então o emit é roteado pelo app (bridge nativo):
+    // window.webkit.messageHandlers.canvasBus.postMessage(payload) → Rust
+    // → run_javascript(__localEmit) em TODAS as janelas.
+    window.__canvasBus = window.__canvasBus || (function () {{
+      var handlers = {{}};
+      function dispatch(payload) {{
+        var m;
+        try {{ m = JSON.parse(payload); }} catch (e) {{ return; }}
+        (handlers[m.evt] || []).slice().forEach(function (fn) {{
+          try {{ fn(m.data); }} catch (e) {{ /* listener quebrado não derruba os outros */ }}
+        }});
+      }}
+      return {{
+        on: function (evt, fn) {{
+          (handlers[evt] = handlers[evt] || []).push(fn);
+          return function () {{
+            handlers[evt] = (handlers[evt] || []).filter(function (h) {{ return h !== fn; }});
+          }};
+        }},
+        emit: function (evt, data) {{
+          var payload = JSON.stringify({{ evt: evt, data: data }});
+          if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.canvasBus) {{
+            window.webkit.messageHandlers.canvasBus.postMessage(payload);
+          }} else {{
+            dispatch(payload); // fallback: sem bridge, só a própria janela
+          }}
+        }},
+        __localEmit: dispatch
+      }};
+    }})();
+
+    // Props injetados pelo window manager (appBus sempre disponível)
+    const WIDGET_PROPS = Object.assign({{ appBus: window.__canvasBus }}, {safe_props});
     
     // Compile and render the JSX widget
     try {{
@@ -131,7 +163,21 @@ mod tests {
     #[test]
     fn injects_props_json() {
         let html = build_widget_html("function W(){}", r#"{"name":"Miguel"}"#);
-        assert!(html.contains(r#"const WIDGET_PROPS = {"name":"Miguel"};"#));
+        let expected = "Object.assign({ appBus: window.__canvasBus }, {\"name\":\"Miguel\"});";
+        assert!(html.contains(expected));
+    }
+
+    #[test]
+    fn provides_app_bus() {
+        // IAS-CANVAS-TOOL widgets receive { appBus } and use emit/on across
+        // windows; the bus must be shared per-process (window.__canvasBus).
+        let html = build_widget_html("function W(){}", "{}");
+        assert!(html.contains("window.__canvasBus = window.__canvasBus ||"));
+        assert!(html.contains("appBus: window.__canvasBus"));
+        assert!(html.contains("on: function (evt, fn)"));
+        assert!(html.contains("emit: function (evt, data)"));
+        // on() must return an unsubscribe fn (React useEffect cleanup)
+        assert!(html.contains("return function ()"));
     }
 
     #[test]

@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use gtk::prelude::*;
 use gtk::{Application, ApplicationWindow};
-use webkit2gtk::{WebView, WebViewExt, WebContext};
+use webkit2gtk::{UserContentManagerExt, WebContext, WebView, WebViewExt};
 
 use crate::types::WindowState;
 use crate::widget_renderer;
@@ -25,7 +25,13 @@ impl WindowManager {
     /// `base_uri` is the base URL for the HTML loaded into webviews (used to
     /// resolve `/vendor/*` script paths against the local IPC server).
     pub fn new(base_uri: String) -> Self {
-        let app = Application::new(Some("com.canvas.rust-windows"), Default::default());
+        // NON_UNIQUE: o GtkApplication é single-instance por id — sem essa
+        // flag, uma 2ª instância delega o activate para a 1ª (recria tray e
+        // janelas — indicador duplicado) e crasha ao sair.
+        let app = Application::new(
+            Some("com.canvas.rust-windows"),
+            gtk::gio::ApplicationFlags::NON_UNIQUE,
+        );
         Self {
             app,
             base_uri,
@@ -125,7 +131,9 @@ fn create_window_impl(
     }
 
     let web_context = WebContext::default().unwrap();
-    let webview = WebView::with_context(&web_context);
+    // UserContentManager carrega o bridge do appBus (script messages JS→Rust)
+    let ucm = webkit2gtk::UserContentManager::new();
+    let webview = WebView::with_user_content_manager(&ucm);
     webview.set_hexpand(true);
     webview.set_vexpand(true);
     win.add(&webview);
@@ -138,6 +146,37 @@ fn create_window_impl(
         widget_renderer::build_widget_html(&state.jsx, "{}")
     };
     webview.load_html(&html, Some(base_uri));
+
+    // appBus bridge (IAS-CANVAS-TOOL widgets): a JS `postMessage` on
+    // `window.webkit.messageHandlers.canvasBus` is broadcast back into EVERY
+    // window as `window.__canvasBus.__localEmit(payload)`. Each window is a
+    // separate webview with its own `window`, so the bus must route through
+    // the app process.
+    {
+        let bus_windows = windows.clone();
+        // O handler só existe no JS se registrado explicitamente no WebProcess
+        ucm.register_script_message_handler("canvasBus");
+        ucm.connect_script_message_received(Some("canvasBus"), move |_, result| {
+            let payload = result.js_value().map(|v| v.to_string()).unwrap_or_default();
+            if payload.is_empty() {
+                return;
+            }
+            log::info!("canvasBus: payload recebido ({} bytes)", payload.len());
+            let js = format!(
+                "window.__canvasBus && window.__canvasBus.__localEmit({});",
+                serde_json::to_string(&payload).unwrap_or_else(|_| "\"\"".into())
+            );
+            let map = bus_windows.lock().unwrap();
+            for entry in map.values() {
+                let _ = entry.webview.run_javascript(
+                    &js,
+                    None::<&webkit2gtk::gio::Cancellable>,
+                    |_| {},
+                );
+            }
+            log::info!("canvasBus: broadcast feito para {} janelas", map.len());
+        });
+    }
 
     let mut map = windows.lock().unwrap();
     let entry = WindowEntry {
@@ -235,9 +274,12 @@ fn setup_tray(
 
     menu.show_all();
 
-    // StatusNotifierItem via libappindicator (works on KDE Plasma 6 / GNOME)
+    // StatusNotifierItem via libappindicator (works on KDE Plasma 6 / GNOME).
+    // O id precisa ser único por processo: uma 2ª instância com o mesmo id
+    // faz o libayatana crashar (segfault no registro do indicador).
+    let indicator_id = format!("rust-canvas-windows-{}", std::process::id());
     let mut indicator =
-        libappindicator::AppIndicator::new("rust-canvas-windows", "applications-development");
+        libappindicator::AppIndicator::new(&indicator_id, "applications-development");
     indicator.set_status(libappindicator::AppIndicatorStatus::Active);
     indicator.set_menu(&mut menu);
     indicator.set_title("Rust Canvas Windows");
