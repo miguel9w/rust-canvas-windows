@@ -16,12 +16,15 @@ const VENDOR_FILES: [&str; 3] = [
     "babel.min.js",
 ];
 
-/// Commands sent from the HTTP server to the GTK thread
+/// Commands sent from the HTTP server to the GTK thread.
+/// Cada comando carrega um canal de resposta (`serde_json::Value`) para
+/// devolver o resultado real (ex: o id da janela criada) — antes o ack era
+/// cego (respondia "success" sem o id).
 pub enum GtkCommand {
-    CreateWindow(WindowCommand),
-    UpdateWindow(WindowCommand),
-    CloseWindow(WindowCommand),
-    ListWindows,
+    CreateWindow(WindowCommand, mpsc::Sender<serde_json::Value>),
+    UpdateWindow(WindowCommand, mpsc::Sender<serde_json::Value>),
+    CloseWindow(WindowCommand, mpsc::Sender<serde_json::Value>),
+    ListWindows(mpsc::Sender<serde_json::Value>),
     Shutdown,
 }
 
@@ -77,11 +80,12 @@ pub fn start_ipc_server(
                 }
             };
 
+            let (reply_tx, reply_rx) = mpsc::channel::<serde_json::Value>();
             let gtk_cmd = match cmd.action.as_str() {
-                "CREATE_WINDOW" | "create_window" => GtkCommand::CreateWindow(cmd),
-                "UPDATE_WINDOW" | "update_window" => GtkCommand::UpdateWindow(cmd),
-                "CLOSE_WINDOW" | "close_window" => GtkCommand::CloseWindow(cmd),
-                "LIST_WINDOWS" | "list_windows" => GtkCommand::ListWindows,
+                "CREATE_WINDOW" | "create_window" => GtkCommand::CreateWindow(cmd, reply_tx),
+                "UPDATE_WINDOW" | "update_window" => GtkCommand::UpdateWindow(cmd, reply_tx),
+                "CLOSE_WINDOW" | "close_window" => GtkCommand::CloseWindow(cmd, reply_tx),
+                "LIST_WINDOWS" | "list_windows" => GtkCommand::ListWindows(reply_tx),
                 other => {
                     let resp = WindowResponse {
                         success: false,
@@ -99,13 +103,12 @@ pub fn start_ipc_server(
                 log::error!("Failed to send command to GTK thread: {}", e);
             }
 
-            // Acknowledge
-            let resp = WindowResponse {
-                success: true,
-                id: None,
-                error: None,
+            // Aguarda a resposta real do GTK thread (ex: o id criado).
+            // Antes o ack era cego — respondia "success" sem o resultado.
+            let json = match reply_rx.recv_timeout(std::time::Duration::from_secs(3)) {
+                Ok(v) => serde_json::to_string(&v).unwrap_or_default(),
+                Err(_) => r#"{"success":false,"error":"timeout: GTK thread não respondeu"}"#.to_string(),
             };
-            let json = serde_json::to_string(&resp).unwrap_or_default();
             let h = Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap();
             let _ = request.respond(Response::from_string(json).with_header(h));
         }

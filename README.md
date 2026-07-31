@@ -48,20 +48,18 @@ curl -X POST http://localhost:8081 \
 > **HTML cru:** se o `jsx` começar com `<`, o conteúdo é carregado como HTML
 > literal (sem template React) — útil para protótipos rápidos.
 
-## CLI (`scripts/widget.sh`)
+## CLI (`windowloom`)
 
-Crie janelas de um arquivo ou direto do terminal, sem sofrer com escaping
-de JSON:
+O CLI é um binário Rust (`src/bin/windowloom.rs`), compilado junto com o app.
+Link para `~/.local/bin/` para usar direto do terminal:
 
 ```bash
-# De um arquivo JSX
-./scripts/widget.sh meu_widget.jsx
+# Criar de um arquivo JSX/HTML
+windowloom create meu_widget.jsx
+windowloom create pagina.html --width 420 --height 260
 
-# De um arquivo HTML cru
-./scripts/widget.sh pagina.html --width 420 --height 260
-
-# Do stdin (heredoc) — JSX multi-linha sem escaping
-./scripts/widget.sh - --title "Relogio" <<'EOF'
+# Criar do stdin (heredoc) — JSX multi-linha sem escaping
+windowloom create - --title "Relogio" <<'EOF'
 function Widget() {
   const [t, s] = React.useState(new Date().toLocaleTimeString());
   setInterval(() => s(new Date().toLocaleTimeString()), 1000);
@@ -69,10 +67,17 @@ function Widget() {
 }
 EOF
 
-# Opções: --title T | --width N | --height N | --port N
+# Gerenciar janelas (create retorna o id de verdade)
+windowloom list                    # tabela com id/título/tamanho
+windowloom update <id> novo.jsx    # troca o conteúdo ao vivo
+windowloom close <id>
+windowloom events [n]              # últimos n eventos do appBus
+
+# Porta: --port N ou RUST_CANVAS_PORT (default 8081)
 ```
 
-Exemplos prontos em `examples/` (`contador.jsx`, `html-cru.html`).
+> O script `scripts/widget.sh` (bash) continua disponível como alternativa
+> sem compilação — mesma API.
 
 ## Widgets do IAS-CANVAS-TOOL (`appBus`)
 

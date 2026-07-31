@@ -28,3 +28,6 @@ glib = "0.18"
 
 # System tray (StatusNotifierItem) — libappindicator3 from the system
 libappindicator = "0.9"
+
+# HTTP client para o CLI (src/bin/windowloom.rs)
+ureq = { version = "2", features = ["json"] }

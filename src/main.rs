@@ -58,7 +58,7 @@ fn main() {
 
         while let Ok(cmd) = rx.try_recv() {
             match cmd {
-                ipc_server::GtkCommand::CreateWindow(c) => {
+                ipc_server::GtkCommand::CreateWindow(c, reply) => {
                     let state = types::WindowState {
                         id: c.id.unwrap_or_default(),
                         title: c.title.unwrap_or_else(|| "Widget".into()),
@@ -69,29 +69,57 @@ fn main() {
                         y: c.y.unwrap_or(100),
                     };
                     match wm.create_window(state) {
-                        Ok(id) => log::info!("Window created: {}", id),
-                        Err(e) => log::error!("Failed to create window: {}", e),
+                        Ok(id) => {
+                            log::info!("Window created: {}", id);
+                            let _ = reply.send(serde_json::json!({"success": true, "id": id}));
+                        }
+                        Err(e) => {
+                            log::error!("Failed to create window: {}", e);
+                            let _ = reply.send(serde_json::json!({"success": false, "error": e}));
+                        }
                     }
                 }
-                ipc_server::GtkCommand::UpdateWindow(c) => {
+                ipc_server::GtkCommand::UpdateWindow(c, reply) => {
                     if let (Some(id), Some(jsx)) = (c.id, c.jsx) {
                         match wm.update_window(&id, &jsx) {
-                            Ok(()) => log::info!("Window {} updated", id),
-                            Err(e) => log::error!("Failed to update window: {}", e),
+                            Ok(()) => {
+                                log::info!("Window {} updated", id);
+                                let _ = reply.send(serde_json::json!({"success": true, "id": id}));
+                            }
+                            Err(e) => {
+                                log::error!("Failed to update window: {}", e);
+                                let _ = reply.send(serde_json::json!({"success": false, "error": e}));
+                            }
                         }
+                    } else {
+                        let _ = reply
+                            .send(serde_json::json!({"success": false, "error": "id e jsx são obrigatórios"}));
                     }
                 }
-                ipc_server::GtkCommand::CloseWindow(c) => {
+                ipc_server::GtkCommand::CloseWindow(c, reply) => {
                     if let Some(id) = c.id {
                         match wm.close_window(&id) {
-                            Ok(()) => log::info!("Window {} closed", id),
-                            Err(e) => log::error!("Failed to close window: {}", e),
+                            Ok(()) => {
+                                log::info!("Window {} closed", id);
+                                let _ = reply.send(serde_json::json!({"success": true, "id": id}));
+                            }
+                            Err(e) => {
+                                log::error!("Failed to close window: {}", e);
+                                let _ = reply.send(serde_json::json!({"success": false, "error": e}));
+                            }
                         }
+                    } else {
+                        let _ = reply.send(serde_json::json!({"success": false, "error": "id é obrigatório"}));
                     }
                 }
-                ipc_server::GtkCommand::ListWindows => {
+                ipc_server::GtkCommand::ListWindows(reply) => {
                     let windows = wm.list_windows();
                     log::info!("Active windows: {}", windows.len());
+                    let list: Vec<serde_json::Value> = windows
+                        .iter()
+                        .map(|w| serde_json::json!({"id": w.id, "title": w.title, "width": w.width, "height": w.height}))
+                        .collect();
+                    let _ = reply.send(serde_json::json!({"success": true, "windows": list}));
                 }
                 ipc_server::GtkCommand::Shutdown => {
                     log::info!("Shutting down...");
