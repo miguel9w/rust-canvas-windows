@@ -174,25 +174,14 @@ fn setup_tray(
 ) {
     let mut menu = gtk::Menu::new();
 
-    // "Nova janela" (blank widget)
-    let mi_new = gtk::MenuItem::with_label("🪟 Nova janela");
+    // "Nova janela" → file chooser para selecionar um widget .jsx/.html
+    let mi_new = gtk::MenuItem::with_label("🪟 Abrir widget...");
     {
         let w = windows.clone();
         let b = base_uri.to_string();
         let a = app.clone();
         mi_new.connect_activate(move |_| {
-            let state = WindowState {
-                id: String::new(),
-                title: "🪟 Nova Janela".into(),
-                jsx: widget_renderer::blank_widget(),
-                width: 600,
-                height: 400,
-                x: 120,
-                y: 120,
-            };
-            if let Err(e) = create_window_impl(&w, &a, &b, &state) {
-                log::error!("tray: falha ao criar janela: {}", e);
-            }
+            open_widget_dialog(&a, &w, &b);
         });
     }
     menu.append(&mi_new);
@@ -257,4 +246,66 @@ fn setup_tray(
     std::mem::forget(indicator);
 
     log::info!("System tray ativo");
+}
+
+/// Opens a file chooser to pick a `.jsx`/`.html` widget file and creates a
+/// window with its contents.
+fn open_widget_dialog(
+    app: &Application,
+    windows: &Arc<Mutex<HashMap<String, WindowEntry>>>,
+    base_uri: &str,
+) {
+    let dialog = gtk::FileChooserDialog::new(
+        Some("Selecionar arquivo JSX/HTML"),
+        None::<&gtk::Window>,
+        gtk::FileChooserAction::Open,
+    );
+    dialog.add_button("Cancelar", gtk::ResponseType::Cancel);
+    dialog.add_button("Abrir", gtk::ResponseType::Accept);
+    dialog.set_modal(true);
+
+    let filter = gtk::FileFilter::new();
+    filter.set_name(Some("Widgets (JSX/HTML)"));
+    filter.add_pattern("*.jsx");
+    filter.add_pattern("*.html");
+    dialog.add_filter(filter);
+
+    let all = gtk::FileFilter::new();
+    all.set_name(Some("Todos os arquivos"));
+    all.add_pattern("*");
+    dialog.add_filter(all);
+
+    let w = windows.clone();
+    let b = base_uri.to_string();
+    let a = app.clone();
+    dialog.connect_response(move |dialog, response| {
+        if response == gtk::ResponseType::Accept {
+            if let Some(path) = dialog.file().and_then(|f| f.path()) {
+                match std::fs::read_to_string(&path) {
+                    Ok(jsx) => {
+                        let title = path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| "Widget".into());
+                        let state = WindowState {
+                            id: String::new(),
+                            title,
+                            jsx,
+                            width: 600,
+                            height: 400,
+                            x: 120,
+                            y: 120,
+                        };
+                        if let Err(e) = create_window_impl(&w, &a, &b, &state) {
+                            log::error!("widget: falha ao criar janela: {}", e);
+                        }
+                    }
+                    Err(e) => log::error!("widget: falha ao ler {}: {}", path.display(), e),
+                }
+            }
+        }
+        dialog.close();
+    });
+
+    dialog.show_all();
 }

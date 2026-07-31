@@ -80,7 +80,8 @@ O app fica na bandeja do sistema (StatusNotifierItem via libappindicator —
 funciona no KDE Plasma 6 e GNOME). Fechar todas as janelas **não** encerra o
 app: ele continua no tray, de onde você pode:
 
-- 🪟 **Nova janela** — cria uma janela blank (mesma ação do clique)
+- 🪟 **Abrir widget...** — abre um seletor de arquivo para escolher um
+  `.jsx`/`.html` e cria a janela com o conteúdo
 - 🍕 **Janela de exemplo** — o widget do cardápio
 - 📋 **Listar janelas** — loga a contagem de janelas ativas
 - 🚪 **Sair** — encerra o app (também fecha janelas e o servidor IPC)
