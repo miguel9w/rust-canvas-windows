@@ -112,7 +112,7 @@ pub fn blank_widget() -> String {
     r#"function Widget(props) {
   const [count, setCount] = React.useState(0);
   return React.createElement('div', { style: { textAlign: 'center', padding: '40px 20px' } },
-    React.createElement('h2', { style: { color: '#6366f1', marginBottom: '16px', fontSize: '18px' } }, '🧊 Rust Canvas Window'),
+    React.createElement('h2', { style: { color: '#6366f1', marginBottom: '16px', fontSize: '18px' } }, 'Rust Canvas Window'),
     React.createElement('p', { style: { color: '#a1a1aa', marginBottom: '24px', fontSize: '13px' } }, 'Native desktop widget — edit the JSX to get started'),
     React.createElement('button', {
       onClick: () => setCount(c => c + 1),
@@ -125,7 +125,7 @@ pub fn blank_widget() -> String {
 /// A slightly richer demo widget (menu example / quick showcase).
 pub fn exemplo_cardapio() -> String {
     r#"function Widget() {
-  const itens = ['🍕 Pizza', '🍔 Burger', '🍣 Sushi', '🌮 Taco'];
+  const itens = ['Pizza', 'Burger', 'Sushi', 'Taco'];
   return React.createElement('div', { style: { padding: 24, fontFamily: 'sans-serif' } },
     React.createElement('h2', { style: { color: '#8b5cf6', marginBottom: 12 } }, 'Cardapio'),
     React.createElement('ul', { style: { listStyle: 'none', padding: 0 } },

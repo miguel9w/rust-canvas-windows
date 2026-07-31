@@ -101,11 +101,14 @@ O app fica na bandeja do sistema (StatusNotifierItem via libappindicator —
 funciona no KDE Plasma 6 e GNOME). Fechar todas as janelas **não** encerra o
 app: ele continua no tray, de onde você pode:
 
-- 🪟 **Abrir widget...** — abre um seletor de arquivo para escolher um
+- **Abrir widget...** — abre um seletor de arquivo para escolher um
   `.jsx`/`.html` e cria a janela com o conteúdo
-- 🍕 **Janela de exemplo** — o widget do cardápio
-- 📋 **Listar janelas** — loga a contagem de janelas ativas
-- 🚪 **Sair** — encerra o app (também fecha janelas e o servidor IPC)
+- **Janela de exemplo** — o widget do cardápio
+- **Listar janelas** — loga a contagem de janelas ativas
+- **Sair** — encerra o app (também fecha janelas e o servidor IPC)
+
+O ícone do tray e o favicon das janelas vêm de `assets/rust-canvas.png`
+(gerado com ImageMagick).
 
 Dependência de sistema (Arch/CachyOS): `libappindicator` (fornece o
 `appindicator3-0.1.pc`).

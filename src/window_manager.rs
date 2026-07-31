@@ -9,6 +9,14 @@ use webkit2gtk::{UserContentManagerExt, WebContext, WebView, WebViewExt};
 use crate::types::WindowState;
 use crate::widget_renderer;
 
+/// Caminho do favicon do app (gerado em `assets/rust-canvas.png`).
+const APP_ICON_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/rust-canvas.png");
+
+/// Carrega o pixbuf do favicon (PNG pequeno — carregado por janela).
+fn app_icon_pixbuf() -> Option<gtk::gdk_pixbuf::Pixbuf> {
+    gtk::gdk_pixbuf::Pixbuf::from_file(APP_ICON_PATH).ok()
+}
+
 pub struct WindowManager {
     app: Application,
     base_uri: String,
@@ -129,6 +137,10 @@ fn create_window_impl(
     if state.x != 0 || state.y != 0 {
         win.move_(state.x, state.y);
     }
+    // Favicon do app em todas as janelas
+    if let Some(icon) = app_icon_pixbuf() {
+        win.set_icon(Some(&icon));
+    }
 
     let web_context = WebContext::default().unwrap();
     // UserContentManager carrega o bridge do appBus (script messages JS→Rust)
@@ -214,7 +226,7 @@ fn setup_tray(
     let mut menu = gtk::Menu::new();
 
     // "Nova janela" → file chooser para selecionar um widget .jsx/.html
-    let mi_new = gtk::MenuItem::with_label("🪟 Abrir widget...");
+    let mi_new = gtk::MenuItem::with_label("Abrir widget...");
     {
         let w = windows.clone();
         let b = base_uri.to_string();
@@ -225,8 +237,8 @@ fn setup_tray(
     }
     menu.append(&mi_new);
 
-    // "Janela de exemplo" (cardápio com emojis)
-    let mi_example = gtk::MenuItem::with_label("🍕 Janela de exemplo");
+    // "Janela de exemplo" (cardápio)
+    let mi_example = gtk::MenuItem::with_label("Janela de exemplo");
     {
         let w = windows.clone();
         let b = base_uri.to_string();
@@ -234,7 +246,7 @@ fn setup_tray(
         mi_example.connect_activate(move |_| {
             let state = WindowState {
                 id: String::new(),
-                title: "🍕 Exemplo".into(),
+                title: "Exemplo".into(),
                 jsx: widget_renderer::exemplo_cardapio(),
                 width: 420,
                 height: 300,
@@ -251,7 +263,7 @@ fn setup_tray(
     menu.append(&gtk::SeparatorMenuItem::new());
 
     // "Listar janelas"
-    let mi_list = gtk::MenuItem::with_label("📋 Listar janelas");
+    let mi_list = gtk::MenuItem::with_label("Listar janelas");
     {
         let w = windows.clone();
         mi_list.connect_activate(move |_| {
@@ -262,7 +274,7 @@ fn setup_tray(
     menu.append(&mi_list);
 
     // "Sair"
-    let mi_quit = gtk::MenuItem::with_label("🚪 Sair");
+    let mi_quit = gtk::MenuItem::with_label("Sair");
     {
         let a = app.clone();
         mi_quit.connect_activate(move |_| {
@@ -279,11 +291,15 @@ fn setup_tray(
     // faz o libayatana crashar (segfault no registro do indicador).
     let indicator_id = format!("rust-canvas-windows-{}", std::process::id());
     let mut indicator =
-        libappindicator::AppIndicator::new(&indicator_id, "applications-development");
+        libappindicator::AppIndicator::new(&indicator_id, "rust-canvas");
     indicator.set_status(libappindicator::AppIndicatorStatus::Active);
     indicator.set_menu(&mut menu);
     indicator.set_title("Rust Canvas Windows");
-    indicator.set_icon("applications-development");
+    // Ícone próprio do app (assets/) em vez do ícone de tema ("martelo")
+    if let Some(dir) = std::path::Path::new(APP_ICON_PATH).parent() {
+        indicator.set_icon_theme_path(dir.to_string_lossy().as_ref());
+    }
+    indicator.set_icon("rust-canvas");
     // Keep it alive for the process lifetime (standard tray pattern).
     std::mem::forget(indicator);
 

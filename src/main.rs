@@ -16,7 +16,7 @@ fn main() {
         .unwrap_or(8081);
 
     println!("╭──────────────────────────────────────╮");
-    println!("│  🪟  Rust Canvas Windows             │");
+    println!("│  Rust Canvas Windows                  │");
     println!("│  Native desktop windows for JSX      │");
     println!("│                                      │");
     println!("│  POST http://127.0.0.1:{}         │", port);
@@ -36,7 +36,7 @@ fn main() {
     // (GtkApplicationWindow must not be created before app.run()).
     let startup_windows = vec![types::WindowState {
         id: String::new(),
-        title: "🧊 Rust Canvas".into(),
+        title: "Rust Canvas".into(),
         jsx: widget_renderer::blank_widget(),
         width: 600,
         height: 400,
