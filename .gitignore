@@ -16,3 +16,6 @@
 # Local overrides
 .env
 .env.local
+
+# Screenshots
+Canvas-*.png

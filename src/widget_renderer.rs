@@ -41,8 +41,8 @@ pub fn build_widget_html(jsx: &str, props: &str) -> String {
 </head>
 <body>
   <div id="root"><div class="loading">⬡ Loading widget...</div></div>
-  <script src="/vendor/react.production.min.js"></script>
-  <script src="/vendor/react-dom.production.min.js"></script>
+  <script src="/vendor/react17.production.min.js"></script>
+  <script src="/vendor/react-dom17.production.min.js"></script>
   <script src="/vendor/babel.min.js"></script>
   <script>
     // Props injected by the window manager
@@ -55,15 +55,16 @@ pub fn build_widget_html(jsx: &str, props: &str) -> String {
         filename: 'widget.jsx',
       }}).code;
       
-      const Component = new Function('React', 'props', code);
+      // Babel outputs the widget as a function declaration; wrap it in a
+      // factory and invoke it immediately so Component IS the widget function
+      // (React calls it with props + hooks context).
+      const Component = new Function('props', code + '\nreturn Widget;')();
       const root = React.createElement(Component, WIDGET_PROPS);
-      // Render off-DOM, then attach: WebKit software rendering (DMABUF off)
-      // never paints in-place DOM mutations from ReactDOM.render — but a
-      // fresh subtree appended to the document paints correctly. This keeps
-      // React's DOM and event delegation intact.
-      const mount = document.createElement('div');
-      ReactDOM.render(root, mount);
-      document.getElementById('root').appendChild(mount);
+      // React 17 required: React 18's concurrent scheduler (even the legacy
+      // ReactDOM.render path) never completes on WebKit software rendering
+      // (WEBKIT_DISABLE_DMABUF_RENDERER=1) — the script hangs and the page
+      // stays on the loading state. React 17 renders synchronously.
+      ReactDOM.render(root, document.getElementById('root'));
     }} catch (err) {{
       document.getElementById('root').innerHTML = 
         `<div class="error">❌ ${{err.message}}\n\n${{err.stack?.split('\\n').slice(0,5).join('\\n') || ''}}</div>`;
@@ -121,13 +122,18 @@ mod tests {
     }
 
     #[test]
-    fn uses_offdom_mount_render() {
-        // Regression: WebKit software rendering (WEBKIT_DISABLE_DMABUF_RENDERER)
-        // never paints in-place DOM mutations from ReactDOM.render — black
-        // windows. The widget must be rendered off-DOM and appended.
+    fn uses_react17_sync_render() {
+        // Regression: React 18's concurrent scheduler (createRoot AND legacy
+        // ReactDOM.render) never completes on WebKit software rendering
+        // (WEBKIT_DISABLE_DMABUF_RENDERER=1) — the script hangs, page stays
+        // on loading. React 17 renders synchronously and works.
         let html = build_widget_html("function W(){}", "{}");
-        assert!(html.contains("ReactDOM.render(root, mount)"));
-        assert!(html.contains("document.getElementById('root').appendChild(mount)"));
+        assert!(html.contains("react17.production.min.js"));
+        assert!(html.contains("react-dom17.production.min.js"));
+        assert!(html.contains("ReactDOM.render(root, document.getElementById('root'))"));
+        assert!(html.contains("return Widget;"), "component factory must return Widget");
         assert!(!html.contains("createRoot"), "createRoot must not be used");
+        assert!(!html.contains("react.production.min.js\""), "React 18 must not be referenced");
+        assert!(!html.contains("react-dom.production.min.js\""), "ReactDOM 18 must not be referenced");
     }
 }

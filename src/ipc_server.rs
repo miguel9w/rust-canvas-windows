@@ -9,8 +9,8 @@ use crate::types::{WindowCommand, WindowResponse};
 
 /// Vendored JS bundles served locally (no CDN dependency at runtime).
 const VENDOR_FILES: [&str; 3] = [
-    "react.production.min.js",
-    "react-dom.production.min.js",
+    "react17.production.min.js",
+    "react-dom17.production.min.js",
     "babel.min.js",
 ];
 
