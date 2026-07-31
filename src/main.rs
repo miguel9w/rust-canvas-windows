@@ -1,4 +1,5 @@
 mod config;
+mod events;
 mod ipc_server;
 mod types;
 mod widget_renderer;
@@ -32,7 +33,8 @@ fn main() {
     // (React/Babel bundles) are served by the app itself — no CDN, no network.
     let base_uri = format!("http://127.0.0.1:{}/", port);
     let config = std::sync::Arc::new(std::sync::Mutex::new(config::load()));
-    let wm = window_manager::WindowManager::new(base_uri, config);
+    let events = std::sync::Arc::new(events::EventLog::new());
+    let wm = window_manager::WindowManager::new(base_uri, config, events.clone());
 
     // No startup windows: the app lives in the system tray. Open widgets
     // from the tray menu (Abrir widget... / Configurações).
@@ -41,7 +43,7 @@ fn main() {
     // Spawn HTTP server in background thread
     let tx_clone = tx.clone();
     std::thread::spawn(move || {
-        if let Err(e) = ipc_server::start_ipc_server(port, tx_clone) {
+        if let Err(e) = ipc_server::start_ipc_server(port, tx_clone, events) {
             log::error!("IPC server failed: {}", e);
         }
     });

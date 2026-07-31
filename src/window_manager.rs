@@ -21,6 +21,7 @@ pub struct WindowManager {
     app: Application,
     base_uri: String,
     config: std::sync::Arc<std::sync::Mutex<crate::config::Config>>,
+    events: std::sync::Arc<crate::events::EventLog>,
     windows: Arc<Mutex<HashMap<String, WindowEntry>>>,
 }
 
@@ -28,6 +29,7 @@ struct WindowEntry {
     state: WindowState,
     gtk_window: ApplicationWindow,
     webview: WebView,
+    keep_above: bool,
 }
 
 impl WindowManager {
@@ -36,6 +38,7 @@ impl WindowManager {
     pub fn new(
         base_uri: String,
         config: std::sync::Arc<std::sync::Mutex<crate::config::Config>>,
+        events: std::sync::Arc<crate::events::EventLog>,
     ) -> Self {
         // NON_UNIQUE: o GtkApplication é single-instance por id — sem essa
         // flag, uma 2ª instância delega o activate para a 1ª (recria tray e
@@ -48,6 +51,7 @@ impl WindowManager {
             app,
             base_uri,
             config,
+            events,
             windows: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -61,6 +65,7 @@ impl WindowManager {
         let app = self.app.clone();
         let base_uri = self.base_uri.clone();
         let config = self.config.clone();
+        let events = self.events.clone();
 
         // Create a hidden placeholder so GTK doesn't exit
         app.connect_activate(move |app| {
@@ -72,13 +77,15 @@ impl WindowManager {
 
             // Create any startup windows now that the app is active
             for state in &startup {
-                if let Err(e) = create_window_impl(&windows, app, &base_uri, &config, state) {
+                if let Err(e) =
+                    create_window_impl(&windows, app, &base_uri, &config, &events, state)
+                {
                     log::error!("Failed to create startup window {}: {}", state.title, e);
                 }
             }
 
             // System tray (StatusIcon — works on KDE/Plasma via XEmbed proxy)
-            setup_tray(app, &windows, &base_uri, &config);
+            setup_tray(app, &windows, &base_uri, &config, &events);
         });
 
         // `app.run()` registers the application and fires `activate` itself —
@@ -90,7 +97,14 @@ impl WindowManager {
     /// Create a new native window — must be called from the GTK thread.
     pub fn create_window(&self, state: WindowState) -> Result<String, String> {
         let windows = self.windows.clone();
-        create_window_impl(&windows, &self.app, &self.base_uri, &self.config, &state)
+        create_window_impl(
+            &windows,
+            &self.app,
+            &self.base_uri,
+            &self.config,
+            &self.events,
+            &state,
+        )
     }
 
     /// Close a window by ID.
@@ -132,6 +146,7 @@ fn create_window_impl(
     app: &Application,
     base_uri: &str,
     config: &std::sync::Arc<std::sync::Mutex<crate::config::Config>>,
+    events: &std::sync::Arc<crate::events::EventLog>,
     state: &WindowState,
 ) -> Result<String, String> {
     let id = if state.id.is_empty() {
@@ -177,6 +192,8 @@ fn create_window_impl(
     // the app process.
     {
         let bus_windows = windows.clone();
+        let ev_log = events.clone();
+        let win_title = state.title.clone();
         // O handler só existe no JS se registrado explicitamente no WebProcess
         ucm.register_script_message_handler("canvasBus");
         ucm.connect_script_message_received(Some("canvasBus"), move |_, result| {
@@ -185,6 +202,8 @@ fn create_window_impl(
                 return;
             }
             log::info!("canvasBus: payload recebido ({} bytes)", payload.len());
+            // Registra no EventLog (consultável via GET /events e /events/stream)
+            ev_log.push(&win_title, &payload);
             let js = format!(
                 "window.__canvasBus && window.__canvasBus.__localEmit({});",
                 serde_json::to_string(&payload).unwrap_or_else(|_| "\"\"".into())
@@ -225,6 +244,49 @@ fn create_window_impl(
         });
     }
 
+    // Menu de contexto do widget (botão direito): recarregar, sempre no topo,
+    // fechar. Suprime o menu padrão do WebKit (retorno true).
+    {
+        let ctx_windows = windows.clone();
+        let ctx_id = id.clone();
+        webview.connect_context_menu(move |webview, _menu, _event, _hit| {
+            let ctx = gtk::Menu::new();
+
+            let mi_reload = gtk::MenuItem::with_label("Recarregar");
+            let wv = webview.clone();
+            mi_reload.connect_activate(move |_| {
+                wv.reload();
+            });
+            ctx.append(&mi_reload);
+
+            let mi_top = gtk::MenuItem::with_label("Sempre no topo");
+            let w = ctx_windows.clone();
+            let wid = ctx_id.clone();
+            mi_top.connect_activate(move |_| {
+                if let Some(entry) = w.lock().unwrap().get_mut(&wid) {
+                    entry.keep_above = !entry.keep_above;
+                    entry.gtk_window.set_keep_above(entry.keep_above);
+                    log::info!("Janela {} keep_above={}", wid, entry.keep_above);
+                }
+            });
+            ctx.append(&mi_top);
+
+            let mi_close = gtk::MenuItem::with_label("Fechar");
+            let w = ctx_windows.clone();
+            let wid = ctx_id.clone();
+            mi_close.connect_activate(move |_| {
+                if let Some(entry) = w.lock().unwrap().get(&wid) {
+                    entry.gtk_window.close();
+                }
+            });
+            ctx.append(&mi_close);
+
+            ctx.show_all();
+            ctx.popup_at_pointer(None);
+            true
+        });
+    }
+
     let mut map = windows.lock().unwrap();
     let entry = WindowEntry {
         state: WindowState {
@@ -233,6 +295,7 @@ fn create_window_impl(
         },
         gtk_window: win.clone(),
         webview,
+        keep_above: false,
     };
     map.insert(id.clone(), entry);
 
@@ -258,6 +321,7 @@ fn setup_tray(
     windows: &Arc<Mutex<HashMap<String, WindowEntry>>>,
     base_uri: &str,
     config: &std::sync::Arc<std::sync::Mutex<crate::config::Config>>,
+    events: &std::sync::Arc<crate::events::EventLog>,
 ) {
     let mut menu = gtk::Menu::new();
 
@@ -268,8 +332,9 @@ fn setup_tray(
         let b = base_uri.to_string();
         let a = app.clone();
         let c = config.clone();
+        let e = events.clone();
         mi_new.connect_activate(move |_| {
-            open_widget_dialog(&a, &w, &b, &c);
+            open_widget_dialog(&a, &w, &b, &c, &e);
         });
     }
     menu.append(&mi_new);
@@ -281,6 +346,7 @@ fn setup_tray(
         let b = base_uri.to_string();
         let a = app.clone();
         let c = config.clone();
+        let e = events.clone();
         mi_settings.connect_activate(move |_| {
             let (width, height) = {
                 let cfg = c.lock().unwrap();
@@ -295,7 +361,7 @@ fn setup_tray(
                 x: 200,
                 y: 150,
             };
-            if let Err(e) = create_window_impl(&w, &a, &b, &c, &state) {
+            if let Err(e) = create_window_impl(&w, &a, &b, &c, &e, &state) {
                 log::error!("tray: falha ao abrir configurações: {}", e);
             }
         });
@@ -309,6 +375,7 @@ fn setup_tray(
         let b = base_uri.to_string();
         let a = app.clone();
         let c = config.clone();
+        let e = events.clone();
         mi_example.connect_activate(move |_| {
             let state = WindowState {
                 id: String::new(),
@@ -319,25 +386,47 @@ fn setup_tray(
                 x: 140,
                 y: 140,
             };
-            if let Err(e) = create_window_impl(&w, &a, &b, &c, &state) {
+            if let Err(e) = create_window_impl(&w, &a, &b, &c, &e, &state) {
                 log::error!("tray: falha ao criar exemplo: {}", e);
             }
         });
     }
     menu.append(&mi_example);
 
-    menu.append(&gtk::SeparatorMenuItem::new());
-
-    // "Listar janelas"
-    let mi_list = gtk::MenuItem::with_label("Listar janelas");
+    // Submenu "Janelas" — dinâmico: repopulado a cada abertura; clicar numa
+    // janela a traz para frente (present).
+    let sub = gtk::Menu::new();
+    let mi_windows = gtk::MenuItem::with_label("Janelas");
+    mi_windows.set_submenu(Some(&sub));
+    menu.append(&mi_windows);
     {
         let w = windows.clone();
-        mi_list.connect_activate(move |_| {
-            let n = w.lock().map(|m| m.len()).unwrap_or(0);
-            log::info!("Janelas ativas no tray: {}", n);
+        sub.connect_show(move |sub| {
+            for child in sub.children() {
+                sub.remove(&child);
+            }
+            let map = w.lock().unwrap();
+            if map.is_empty() {
+                let it = gtk::MenuItem::with_label("(nenhuma janela)");
+                it.set_sensitive(false);
+                sub.append(&it);
+            }
+            for (id, entry) in map.iter() {
+                let it = gtk::MenuItem::with_label(&entry.state.title);
+                let wid = id.clone();
+                let w2 = w.clone();
+                it.connect_activate(move |_| {
+                    if let Some(e) = w2.lock().unwrap().get(&wid) {
+                        e.gtk_window.present();
+                    }
+                });
+                sub.append(&it);
+            }
+            sub.show_all();
         });
     }
-    menu.append(&mi_list);
+
+    menu.append(&gtk::SeparatorMenuItem::new());
 
     // "Sair"
     let mi_quit = gtk::MenuItem::with_label("Sair");
@@ -379,6 +468,7 @@ fn open_widget_dialog(
     windows: &Arc<Mutex<HashMap<String, WindowEntry>>>,
     base_uri: &str,
     config: &std::sync::Arc<std::sync::Mutex<crate::config::Config>>,
+    events: &std::sync::Arc<crate::events::EventLog>,
 ) {
     let dialog = gtk::FileChooserDialog::new(
         Some("Selecionar arquivo JSX/HTML"),
@@ -404,6 +494,7 @@ fn open_widget_dialog(
     let b = base_uri.to_string();
     let a = app.clone();
     let c = config.clone();
+    let e = events.clone();
     dialog.connect_response(move |dialog, response| {
         if response == gtk::ResponseType::Accept {
             if let Some(path) = dialog.file().and_then(|f| f.path()) {
@@ -426,7 +517,7 @@ fn open_widget_dialog(
                             x: 120,
                             y: 120,
                         };
-                        if let Err(e) = create_window_impl(&w, &a, &b, &c, &state) {
+                        if let Err(e) = create_window_impl(&w, &a, &b, &c, &e, &state) {
                             log::error!("widget: falha ao criar janela: {}", e);
                         }
                     }

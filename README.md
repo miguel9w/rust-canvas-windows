@@ -95,6 +95,25 @@ Fluxo típico (dashboard corporativo):
 Clique em **Carregar ▶** no corp-dados — os outros 4 widgets recebem os
 dados via bus e renderizam (gráficos em Canvas 2D).
 
+## Eventos para o agente (HTTP)
+
+Todo `appBus.emit` dos widgets é registrado num log central — o agente
+(OpenCode/Hermes) consulta via HTTP:
+
+```bash
+# Últimos 100 eventos (JSON, mais novo primeiro)
+curl http://127.0.0.1:8081/events
+
+# Polling incremental: só eventos com ts >= <ts> (o ts do último evento)
+curl "http://127.0.0.1:8081/events?since=1785536151287"
+
+# Limpar o buffer (após processar)
+curl http://127.0.0.1:8081/events/clear
+```
+
+Cada evento: `{ "ts", "window", "evt", "data" }` (timestamp, janela de
+origem, nome do evento e payload).
+
 ## System Tray
 
 O app fica na bandeja do sistema (StatusNotifierItem via libappindicator —
@@ -107,9 +126,13 @@ tray. Fechar todas as janelas também não encerra o app. No menu do tray:
   - *Iniciar com o sistema* (cria/remove `~/.config/autostart/rust-canvas-windows.desktop`)
   - *Largura/altura padrão* das janelas novas
   - persiste em `~/.config/rust-canvas-windows/config.json` (bridge `configBus`)
+- **Janelas** — submenu dinâmico com as janelas abertas; clicar traz para a
+  frente
 - **Janela de exemplo** — o widget do cardápio
-- **Listar janelas** — loga a contagem de janelas ativas
 - **Sair** — encerra o app (também fecha janelas e o servidor IPC)
+
+**Menu de contexto no widget** (botão direito): Recarregar, Sempre no topo
+(toggle) e Fechar.
 
 O ícone do tray e o favicon das janelas vêm de `assets/rust-canvas.png`
 (gerado com ImageMagick).

@@ -1,10 +1,12 @@
 use std::fs::File;
 use std::path::Path;
 use std::sync::mpsc;
+use std::sync::Arc;
 use std::thread;
 
 use tiny_http::{Header, Method, Response, Server};
 
+use crate::events::EventLog;
 use crate::types::{WindowCommand, WindowResponse};
 
 /// Vendored JS bundles served locally (no CDN dependency at runtime).
@@ -25,16 +27,32 @@ pub enum GtkCommand {
 
 /// Starts a simple HTTP server (POST only) that receives window commands.
 /// The server runs in a separate thread and sends commands to the GTK thread via channel.
-pub fn start_ipc_server(port: u16, tx: mpsc::Sender<GtkCommand>) -> Result<(), String> {
+pub fn start_ipc_server(
+    port: u16,
+    tx: mpsc::Sender<GtkCommand>,
+    events: Arc<EventLog>,
+) -> Result<(), String> {
     let addr = format!("127.0.0.1:{}", port);
     let server = Server::http(&addr).map_err(|e| format!("Failed to bind: {}", e))?;
     log::info!("Rust Canvas IPC server listening on http://{}", addr);
 
     thread::spawn(move || {
         for mut request in server.incoming_requests() {
-            // GET /vendor/* → serve vendored JS bundles (local, no CDN)
+            // GET: rotas de consulta (vendor, eventos)
             if request.method() == &Method::Get {
-                serve_vendor(request);
+                let url = request.url().to_string();
+                if url.starts_with("/events") {
+                    if url == "/events/clear" {
+                        events.clear();
+                        let _ = request.respond(Response::from_string("ok"));
+                    } else {
+                        serve_events(request, &events);
+                    }
+                } else if url.starts_with("/vendor/") {
+                    serve_vendor(request);
+                } else {
+                    let _ = request.respond(Response::from_string("not found").with_status_code(404));
+                }
                 continue;
             }
 
@@ -94,6 +112,27 @@ pub fn start_ipc_server(port: u16, tx: mpsc::Sender<GtkCommand>) -> Result<(), S
     });
 
     Ok(())
+}
+
+/// `GET /events` e `GET /events?since=<ts>` — eventos do appBus em JSON
+/// (mais novo primeiro). Com `since`, só eventos com `ts >= since`
+/// (polling incremental para o agente).
+fn serve_events(request: tiny_http::Request, events: &EventLog) {
+    let url = request.url().to_string();
+    let since = url
+        .split('?')
+        .nth(1)
+        .and_then(|q| q.strip_prefix("since="))
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(0);
+    let list = if since > 0 {
+        events.since(since, 100)
+    } else {
+        events.recent(100)
+    };
+    let json = serde_json::to_string(&list).unwrap_or_else(|_| "[]".into());
+    let h = Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap();
+    let _ = request.respond(Response::from_string(json).with_header(h));
 }
 
 /// Serves a vendored JS bundle from `<project>/vendor/` (whitelisted filenames only).
