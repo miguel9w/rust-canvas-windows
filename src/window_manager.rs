@@ -393,36 +393,22 @@ fn setup_tray(
     }
     menu.append(&mi_example);
 
-    // Submenu "Janelas" — dinâmico: repopulado a cada abertura; clicar numa
-    // janela a traz para frente (present).
+    // Submenu "Janelas" — dinâmico: o libappindicator exporta o menu via
+    // dbusmenu (o signal `show` do gtk::Menu nunca dispara), então o
+    // submenu é repopulado por um timer (2s) com as janelas atuais.
     let sub = gtk::Menu::new();
     let mi_windows = gtk::MenuItem::with_label("Janelas");
     mi_windows.set_submenu(Some(&sub));
     menu.append(&mi_windows);
     {
         let w = windows.clone();
-        sub.connect_show(move |sub| {
-            for child in sub.children() {
-                sub.remove(&child);
-            }
-            let map = w.lock().unwrap();
-            if map.is_empty() {
-                let it = gtk::MenuItem::with_label("(nenhuma janela)");
-                it.set_sensitive(false);
-                sub.append(&it);
-            }
-            for (id, entry) in map.iter() {
-                let it = gtk::MenuItem::with_label(&entry.state.title);
-                let wid = id.clone();
-                let w2 = w.clone();
-                it.connect_activate(move |_| {
-                    if let Some(e) = w2.lock().unwrap().get(&wid) {
-                        e.gtk_window.present();
-                    }
-                });
-                sub.append(&it);
-            }
-            sub.show_all();
+        // Primeira população imediata
+        repopulate_windows_menu(&sub, &w);
+        // E a cada 2s (o dbusmenu lê o estado atual do menu GTK)
+        let w2 = w.clone();
+        glib::timeout_add_local(std::time::Duration::from_secs(2), move || {
+            repopulate_windows_menu(&sub, &w2);
+            glib::ControlFlow::Continue
         });
     }
 
@@ -459,6 +445,32 @@ fn setup_tray(
     std::mem::forget(indicator);
 
     log::info!("System tray ativo");
+}
+
+/// Reconstrói o submenu "Janelas" com as janelas atuais (título = item;
+/// clique traz a janela para frente).
+fn repopulate_windows_menu(sub: &gtk::Menu, windows: &Arc<Mutex<HashMap<String, WindowEntry>>>) {
+    for child in sub.children() {
+        sub.remove(&child);
+    }
+    let map = windows.lock().unwrap();
+    if map.is_empty() {
+        let it = gtk::MenuItem::with_label("(nenhuma janela)");
+        it.set_sensitive(false);
+        sub.append(&it);
+    }
+    for (id, entry) in map.iter() {
+        let it = gtk::MenuItem::with_label(&entry.state.title);
+        let wid = id.clone();
+        let w2 = windows.clone();
+        it.connect_activate(move |_| {
+            if let Some(e) = w2.lock().unwrap().get(&wid) {
+                e.gtk_window.present();
+            }
+        });
+        sub.append(&it);
+    }
+    sub.show_all();
 }
 
 /// Opens a file chooser to pick a `.jsx`/`.html` widget file and creates a
