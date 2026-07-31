@@ -42,11 +42,37 @@ curl -X POST http://localhost:8081 \
   }'
 ```
 
-> **Offline por padrão:** React 18 e Babel ficam em `vendor/` e são servidos
+> **Offline por padrão:** React 17 e Babel ficam em `vendor/` e são servidos
 > pelo próprio app (`GET /vendor/*`). Sem dependência de CDN/network.
 >
 > **HTML cru:** se o `jsx` começar com `<`, o conteúdo é carregado como HTML
 > literal (sem template React) — útil para protótipos rápidos.
+
+## CLI (`scripts/widget.sh`)
+
+Crie janelas de um arquivo ou direto do terminal, sem sofrer com escaping
+de JSON:
+
+```bash
+# De um arquivo JSX
+./scripts/widget.sh meu_widget.jsx
+
+# De um arquivo HTML cru
+./scripts/widget.sh pagina.html --width 420 --height 260
+
+# Do stdin (heredoc) — JSX multi-linha sem escaping
+./scripts/widget.sh - --title "Relogio" <<'EOF'
+function Widget() {
+  const [t, s] = React.useState(new Date().toLocaleTimeString());
+  setInterval(() => s(new Date().toLocaleTimeString()), 1000);
+  return React.createElement('div', { style: { fontSize: 28, fontFamily: 'monospace' } }, '⏰ ' + t);
+}
+EOF
+
+# Opções: --title T | --width N | --height N | --port N
+```
+
+Exemplos prontos em `examples/` (`contador.jsx`, `html-cru.html`).
 
 ## API
 
