@@ -1,3 +1,4 @@
+mod config;
 mod ipc_server;
 mod types;
 mod widget_renderer;
@@ -30,19 +31,12 @@ fn main() {
     // Base URI points at the local IPC server so `/vendor/*` scripts
     // (React/Babel bundles) are served by the app itself — no CDN, no network.
     let base_uri = format!("http://127.0.0.1:{}/", port);
-    let wm = window_manager::WindowManager::new(base_uri);
+    let config = std::sync::Arc::new(std::sync::Mutex::new(config::load()));
+    let wm = window_manager::WindowManager::new(base_uri, config);
 
-    // Demo window — created inside the GtkApplication `activate` handler
-    // (GtkApplicationWindow must not be created before app.run()).
-    let startup_windows = vec![types::WindowState {
-        id: String::new(),
-        title: "Rust Canvas".into(),
-        jsx: widget_renderer::blank_widget(),
-        width: 600,
-        height: 400,
-        x: 200,
-        y: 150,
-    }];
+    // No startup windows: the app lives in the system tray. Open widgets
+    // from the tray menu (Abrir widget... / Configurações).
+    let startup_windows: Vec<types::WindowState> = vec![];
 
     // Spawn HTTP server in background thread
     let tx_clone = tx.clone();

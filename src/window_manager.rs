@@ -20,6 +20,7 @@ fn app_icon_pixbuf() -> Option<gtk::gdk_pixbuf::Pixbuf> {
 pub struct WindowManager {
     app: Application,
     base_uri: String,
+    config: std::sync::Arc<std::sync::Mutex<crate::config::Config>>,
     windows: Arc<Mutex<HashMap<String, WindowEntry>>>,
 }
 
@@ -32,7 +33,10 @@ struct WindowEntry {
 impl WindowManager {
     /// `base_uri` is the base URL for the HTML loaded into webviews (used to
     /// resolve `/vendor/*` script paths against the local IPC server).
-    pub fn new(base_uri: String) -> Self {
+    pub fn new(
+        base_uri: String,
+        config: std::sync::Arc<std::sync::Mutex<crate::config::Config>>,
+    ) -> Self {
         // NON_UNIQUE: o GtkApplication é single-instance por id — sem essa
         // flag, uma 2ª instância delega o activate para a 1ª (recria tray e
         // janelas — indicador duplicado) e crasha ao sair.
@@ -43,6 +47,7 @@ impl WindowManager {
         Self {
             app,
             base_uri,
+            config,
             windows: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -55,6 +60,7 @@ impl WindowManager {
         let windows = self.windows.clone();
         let app = self.app.clone();
         let base_uri = self.base_uri.clone();
+        let config = self.config.clone();
 
         // Create a hidden placeholder so GTK doesn't exit
         app.connect_activate(move |app| {
@@ -66,13 +72,13 @@ impl WindowManager {
 
             // Create any startup windows now that the app is active
             for state in &startup {
-                if let Err(e) = create_window_impl(&windows, app, &base_uri, state) {
+                if let Err(e) = create_window_impl(&windows, app, &base_uri, &config, state) {
                     log::error!("Failed to create startup window {}: {}", state.title, e);
                 }
             }
 
             // System tray (StatusIcon — works on KDE/Plasma via XEmbed proxy)
-            setup_tray(app, &windows, &base_uri);
+            setup_tray(app, &windows, &base_uri, &config);
         });
 
         // `app.run()` registers the application and fires `activate` itself —
@@ -84,7 +90,7 @@ impl WindowManager {
     /// Create a new native window — must be called from the GTK thread.
     pub fn create_window(&self, state: WindowState) -> Result<String, String> {
         let windows = self.windows.clone();
-        create_window_impl(&windows, &self.app, &self.base_uri, &state)
+        create_window_impl(&windows, &self.app, &self.base_uri, &self.config, &state)
     }
 
     /// Close a window by ID.
@@ -102,7 +108,9 @@ impl WindowManager {
     pub fn update_window(&self, id: &str, new_jsx: &str) -> Result<(), String> {
         let map = self.windows.lock().map_err(|e| e.to_string())?;
         if let Some(entry) = map.get(id) {
-            let html = widget_renderer::build_widget_html(new_jsx, "{}");
+            let config_json =
+                serde_json::to_string(&*self.config.lock().unwrap()).unwrap_or_else(|_| "{}".into());
+            let html = widget_renderer::build_widget_html(new_jsx, "{}", &config_json);
             entry.webview.load_html(&html, None);
             Ok(())
         } else {
@@ -123,6 +131,7 @@ fn create_window_impl(
     windows: &Arc<Mutex<HashMap<String, WindowEntry>>>,
     app: &Application,
     base_uri: &str,
+    config: &std::sync::Arc<std::sync::Mutex<crate::config::Config>>,
     state: &WindowState,
 ) -> Result<String, String> {
     let id = if state.id.is_empty() {
@@ -155,7 +164,9 @@ fn create_window_impl(
     let html = if state.jsx.trim_start().starts_with('<') {
         state.jsx.clone()
     } else {
-        widget_renderer::build_widget_html(&state.jsx, "{}")
+        let config_json =
+            serde_json::to_string(&*config.lock().unwrap()).unwrap_or_else(|_| "{}".into());
+        widget_renderer::build_widget_html(&state.jsx, "{}", &config_json)
     };
     webview.load_html(&html, Some(base_uri));
 
@@ -187,6 +198,30 @@ fn create_window_impl(
                 );
             }
             log::info!("canvasBus: broadcast feito para {} janelas", map.len());
+        });
+    }
+
+    // configBus bridge: a janela de Configurações posta o JSON da config e o
+    // app persiste (~/.config/rust-canvas-windows/config.json) e aplica
+    // (autostart .desktop).
+    {
+        let cfg = config.clone();
+        ucm.register_script_message_handler("configBus");
+        ucm.connect_script_message_received(Some("configBus"), move |_, result| {
+            let payload = result.js_value().map(|v| v.to_string()).unwrap_or_default();
+            match serde_json::from_str::<crate::config::Config>(&payload) {
+                Ok(new_cfg) => {
+                    if let Err(e) = crate::config::apply_autostart(new_cfg.autostart) {
+                        log::error!("config: autostart falhou: {}", e);
+                    }
+                    if let Err(e) = crate::config::save(&new_cfg) {
+                        log::error!("config: salvar falhou: {}", e);
+                    }
+                    *cfg.lock().unwrap() = new_cfg;
+                    log::info!("Configurações salvas");
+                }
+                Err(e) => log::error!("config: JSON inválido: {}", e),
+            }
         });
     }
 
@@ -222,6 +257,7 @@ fn setup_tray(
     app: &Application,
     windows: &Arc<Mutex<HashMap<String, WindowEntry>>>,
     base_uri: &str,
+    config: &std::sync::Arc<std::sync::Mutex<crate::config::Config>>,
 ) {
     let mut menu = gtk::Menu::new();
 
@@ -231,11 +267,40 @@ fn setup_tray(
         let w = windows.clone();
         let b = base_uri.to_string();
         let a = app.clone();
+        let c = config.clone();
         mi_new.connect_activate(move |_| {
-            open_widget_dialog(&a, &w, &b);
+            open_widget_dialog(&a, &w, &b, &c);
         });
     }
     menu.append(&mi_new);
+
+    // "Configurações" — janela com a config do app (autostart, tamanhos)
+    let mi_settings = gtk::MenuItem::with_label("Configurações");
+    {
+        let w = windows.clone();
+        let b = base_uri.to_string();
+        let a = app.clone();
+        let c = config.clone();
+        mi_settings.connect_activate(move |_| {
+            let (width, height) = {
+                let cfg = c.lock().unwrap();
+                (cfg.width, cfg.height)
+            };
+            let state = WindowState {
+                id: String::new(),
+                title: "Configurações".into(),
+                jsx: widget_renderer::config_widget(),
+                width,
+                height,
+                x: 200,
+                y: 150,
+            };
+            if let Err(e) = create_window_impl(&w, &a, &b, &c, &state) {
+                log::error!("tray: falha ao abrir configurações: {}", e);
+            }
+        });
+    }
+    menu.append(&mi_settings);
 
     // "Janela de exemplo" (cardápio)
     let mi_example = gtk::MenuItem::with_label("Janela de exemplo");
@@ -243,6 +308,7 @@ fn setup_tray(
         let w = windows.clone();
         let b = base_uri.to_string();
         let a = app.clone();
+        let c = config.clone();
         mi_example.connect_activate(move |_| {
             let state = WindowState {
                 id: String::new(),
@@ -253,7 +319,7 @@ fn setup_tray(
                 x: 140,
                 y: 140,
             };
-            if let Err(e) = create_window_impl(&w, &a, &b, &state) {
+            if let Err(e) = create_window_impl(&w, &a, &b, &c, &state) {
                 log::error!("tray: falha ao criar exemplo: {}", e);
             }
         });
@@ -312,6 +378,7 @@ fn open_widget_dialog(
     app: &Application,
     windows: &Arc<Mutex<HashMap<String, WindowEntry>>>,
     base_uri: &str,
+    config: &std::sync::Arc<std::sync::Mutex<crate::config::Config>>,
 ) {
     let dialog = gtk::FileChooserDialog::new(
         Some("Selecionar arquivo JSX/HTML"),
@@ -336,6 +403,7 @@ fn open_widget_dialog(
     let w = windows.clone();
     let b = base_uri.to_string();
     let a = app.clone();
+    let c = config.clone();
     dialog.connect_response(move |dialog, response| {
         if response == gtk::ResponseType::Accept {
             if let Some(path) = dialog.file().and_then(|f| f.path()) {
@@ -345,16 +413,20 @@ fn open_widget_dialog(
                             .file_name()
                             .map(|n| n.to_string_lossy().into_owned())
                             .unwrap_or_else(|| "Widget".into());
+                        let (width, height) = {
+                            let cfg = c.lock().unwrap();
+                            (cfg.width, cfg.height)
+                        };
                         let state = WindowState {
                             id: String::new(),
                             title,
                             jsx,
-                            width: 600,
-                            height: 400,
+                            width,
+                            height,
                             x: 120,
                             y: 120,
                         };
-                        if let Err(e) = create_window_impl(&w, &a, &b, &state) {
+                        if let Err(e) = create_window_impl(&w, &a, &b, &c, &state) {
                             log::error!("widget: falha ao criar janela: {}", e);
                         }
                     }

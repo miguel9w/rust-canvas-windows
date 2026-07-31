@@ -1,6 +1,8 @@
 /// Generates the HTML that wraps a JSX widget with React + Babel Standalone
 /// for runtime compilation, injected into WebKit.
-pub fn build_widget_html(jsx: &str, props: &str) -> String {
+/// `config_json` é a configuração atual do app, exposta como
+/// `window.__canvasConfig` para o widget de Configurações.
+pub fn build_widget_html(jsx: &str, props: &str, config_json: &str) -> String {
     // Escape for embedding inside a JS template literal (backticks, ${).
     // NOTE: do NOT escape < > here — the JSX is compiled by Babel as
     // JavaScript, where < > are valid tokens (arrow functions, comparisons).
@@ -79,6 +81,8 @@ pub fn build_widget_html(jsx: &str, props: &str) -> String {
 
     // Props injetados pelo window manager (appBus sempre disponível)
     const WIDGET_PROPS = Object.assign({{ appBus: window.__canvasBus }}, {safe_props});
+    // Configuração atual do app (preenchida pelo window manager)
+    window.__canvasConfig = {config_json};
     
     // Compile and render the JSX widget
     try {{
@@ -135,6 +139,54 @@ pub fn exemplo_cardapio() -> String {
 }"#.to_string()
 }
 
+/// Widget de Configurações (aberto pelo tray). Lê `window.__canvasConfig`
+/// (injetado pelo window manager) e salva via `configBus` (bridge JS→Rust).
+pub fn config_widget() -> String {
+    r#"function Widget({ appBus }) {
+  var c = React.useState(window.__canvasConfig || { width: 600, height: 400, autostart: false });
+  var saved = React.useState(false);
+  function save() {
+    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.configBus) {
+      window.webkit.messageHandlers.configBus.postMessage(JSON.stringify(c[0]));
+      saved[1](true);
+      setTimeout(function () { saved[1](false); }, 1500);
+    }
+  }
+  function upd(key) {
+    return function (e) {
+      var v = e.target.type === 'checkbox' ? e.target.checked : parseInt(e.target.value) || 0;
+      var o = {}; o[key] = v;
+      c[1](Object.assign({}, c[0], o));
+    };
+  }
+  var s = {
+    wrap: { padding: 24, fontFamily: 'sans-serif' },
+    h2: { color: '#818cf8', margin: '0 0 20px', fontSize: 17 },
+    row: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, color: '#cbd5e1', fontSize: 13 },
+    input: { background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 6, padding: '4px 8px', width: 70, fontSize: 13 },
+    btn: { background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 22px', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginTop: 8 },
+    saved: { color: '#4ade80', fontSize: 13, marginLeft: 10 }
+  };
+  return React.createElement('div', { style: s.wrap },
+    React.createElement('h2', { style: s.h2 }, 'Configurações'),
+    React.createElement('div', { style: s.row },
+      React.createElement('input', { type: 'checkbox', checked: c[0].autostart, onChange: upd('autostart') }),
+      React.createElement('span', null, 'Iniciar com o sistema')
+    ),
+    React.createElement('div', { style: s.row },
+      React.createElement('span', null, 'Largura padrão'),
+      React.createElement('input', { type: 'number', value: c[0].width, onChange: upd('width'), style: s.input })
+    ),
+    React.createElement('div', { style: s.row },
+      React.createElement('span', null, 'Altura padrão'),
+      React.createElement('input', { type: 'number', value: c[0].height, onChange: upd('height'), style: s.input })
+    ),
+    React.createElement('button', { onClick: save, style: s.btn }, 'Salvar'),
+    saved[0] ? React.createElement('span', { style: s.saved }, 'Salvo!') : null
+  );
+}"#.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,7 +195,7 @@ mod tests {
     fn preserves_js_tokens_that_use_angle_brackets() {
         // Regression test: escaping < > used to turn `=>` into `=&gt;`,
         // breaking Babel with "Unexpected token" on every arrow function.
-        let html = build_widget_html("function W(){ return x => x + 1; }", "{}");
+        let html = build_widget_html("function W(){ return x => x + 1; }", "{}", "{}");
         assert!(html.contains("x => x + 1"), "arrow function must survive verbatim");
         assert!(!html.contains("&gt;"), "no HTML-entity mangling of JS");
         assert!(!html.contains("&lt;"), "no HTML-entity mangling of JS");
@@ -151,9 +203,9 @@ mod tests {
 
     #[test]
     fn escapes_template_literal_and_script_close() {
-        let html = build_widget_html("const s = `tick ${1}`;", "{}");
+        let html = build_widget_html("const s = `tick ${1}`;", "{}", "{}");
         assert!(html.contains("\\`tick \\${1}\\`"), "backtick and dollar-brace escaped for template literal");
-        let html2 = build_widget_html("const s = '</script>';", "{}");
+        let html2 = build_widget_html("const s = '</script>';", "{}", "{}");
         assert!(
             html2.contains("<\\/script>"),
             "script close inside JSX escaped (the page's own </script> tags are unrelated)"
@@ -162,7 +214,7 @@ mod tests {
 
     #[test]
     fn injects_props_json() {
-        let html = build_widget_html("function W(){}", r#"{"name":"Miguel"}"#);
+        let html = build_widget_html("function W(){}", r#"{"name":"Miguel"}"#, "{}");
         let expected = "Object.assign({ appBus: window.__canvasBus }, {\"name\":\"Miguel\"});";
         assert!(html.contains(expected));
     }
@@ -171,7 +223,7 @@ mod tests {
     fn provides_app_bus() {
         // IAS-CANVAS-TOOL widgets receive { appBus } and use emit/on across
         // windows; the bus must be shared per-process (window.__canvasBus).
-        let html = build_widget_html("function W(){}", "{}");
+        let html = build_widget_html("function W(){}", "{}", "{}");
         assert!(html.contains("window.__canvasBus = window.__canvasBus ||"));
         assert!(html.contains("appBus: window.__canvasBus"));
         assert!(html.contains("on: function (evt, fn)"));
@@ -186,7 +238,7 @@ mod tests {
         // ReactDOM.render) never completes on WebKit software rendering
         // (WEBKIT_DISABLE_DMABUF_RENDERER=1) — the script hangs, page stays
         // on loading. React 17 renders synchronously and works.
-        let html = build_widget_html("function W(){}", "{}");
+        let html = build_widget_html("function W(){}", "{}", "{}");
         assert!(html.contains("react17.production.min.js"));
         assert!(html.contains("react-dom17.production.min.js"));
         assert!(html.contains("ReactDOM.render(root, document.getElementById('root'))"));

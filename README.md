@@ -98,11 +98,15 @@ dados via bus e renderizam (gráficos em Canvas 2D).
 ## System Tray
 
 O app fica na bandeja do sistema (StatusNotifierItem via libappindicator —
-funciona no KDE Plasma 6 e GNOME). Fechar todas as janelas **não** encerra o
-app: ele continua no tray, de onde você pode:
+funciona no KDE Plasma 6 e GNOME). **Ao iniciar, nenhuma janela abre** — só o
+tray. Fechar todas as janelas também não encerra o app. No menu do tray:
 
-- **Abrir widget...** — abre um seletor de arquivo para escolher um
-  `.jsx`/`.html` e cria a janela com o conteúdo
+- **Abrir widget...** — seletor de arquivo para escolher um `.jsx`/`.html` e
+  criar a janela com o conteúdo (tamanho padrão vindo da configuração)
+- **Configurações** — janela com:
+  - *Iniciar com o sistema* (cria/remove `~/.config/autostart/rust-canvas-windows.desktop`)
+  - *Largura/altura padrão* das janelas novas
+  - persiste em `~/.config/rust-canvas-windows/config.json` (bridge `configBus`)
 - **Janela de exemplo** — o widget do cardápio
 - **Listar janelas** — loga a contagem de janelas ativas
 - **Sair** — encerra o app (também fecha janelas e o servidor IPC)
