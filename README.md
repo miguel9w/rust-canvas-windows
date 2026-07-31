@@ -67,18 +67,22 @@ function Widget() {
 }
 EOF
 
-# Gerenciar janelas (create retorna o id de verdade)
-windowloom list                    # tabela com id/título/tamanho
-windowloom update <id> novo.jsx    # troca o conteúdo ao vivo
+# Abrir o app e gerenciar janelas
+windowloom start                    # inicia o app (tray)
+windowloom main                     # abre a janela principal (hub GTK)
+windowloom list                     # tabela com id/título/tamanho
+windowloom update <id> novo.jsx     # troca o conteúdo ao vivo
 windowloom close <id>
-windowloom main                    # abre a janela principal (menubar GTK)
-windowloom events [n]              # últimos n eventos do appBus
+windowloom events [n]               # últimos n eventos do appBus
 
 # Porta: --port N ou RUST_CANVAS_PORT (default 8081)
 ```
 
 > O script `scripts/widget.sh` (bash) continua disponível como alternativa
 > sem compilação — mesma API.
+
+**No menu do KDE:** `~/.local/share/applications/windowloom.desktop`
+(Exec com as env vars + ícone do app) — clique no menu inicia o WindowLoom.
 
 ## Widgets do IAS-CANVAS-TOOL (`appBus`)
 

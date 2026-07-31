@@ -161,6 +161,43 @@ fn cmd_list(o: &Opts) -> ExitCode {
     }
 }
 
+/// `windowloom start` — inicia o app (spawna o binário com as env vars).
+fn cmd_start(_o: &Opts) -> ExitCode {
+    let exe = match std::env::current_exe() {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("❌ não foi possível localizar o binário: {}", e);
+            return ExitCode::FAILURE;
+        }
+    };
+    let app_bin = exe
+        .parent()
+        .map(|d| d.join("rust-canvas-windows"))
+        .unwrap_or_default();
+    if !app_bin.exists() {
+        eprintln!("❌ app não encontrado: {}", app_bin.display());
+        return ExitCode::FAILURE;
+    }
+    match std::process::Command::new(&app_bin)
+        .env("GDK_BACKEND", "x11")
+        .env("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
+        // Redireciona o stdout/stderr do filho: sem isso o processo segura o
+        // pipe do shell e um `windowloom start | grep ...` nunca termina.
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
+        Ok(_) => {
+            println!("✅ WindowLoom iniciado (tray). Abra o hub com: windowloom main");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("❌ falha ao iniciar: {}", e);
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn cmd_main(o: &Opts) -> ExitCode {
     let body = serde_json::json!({ "action": "OPEN_MAIN_WINDOW" });
     match post(&o.port, "OPEN_MAIN_WINDOW", body) {
@@ -215,6 +252,7 @@ fn main() -> ExitCode {
         "update" => cmd_update(&opts),
         "close" => cmd_close(&opts),
         "list" => cmd_list(&opts),
+        "start" => cmd_start(&opts),
         "main" => cmd_main(&opts),
         "events" => cmd_events(&opts),
         _ => {
