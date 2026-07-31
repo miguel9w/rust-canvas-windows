@@ -56,6 +56,9 @@ impl WindowManager {
                     log::error!("Failed to create startup window {}: {}", state.title, e);
                 }
             }
+
+            // System tray (StatusIcon — works on KDE/Plasma via XEmbed proxy)
+            setup_tray(app, &windows, &base_uri);
         });
 
         // `app.run()` registers the application and fires `activate` itself —
@@ -159,4 +162,99 @@ fn create_window_impl(
     });
 
     Ok(id)
+}
+
+/// System tray icon + context menu (libappindicator / StatusNotifierItem).
+/// Closing all windows keeps the app alive in the tray (the hidden
+/// placeholder prevents GTK from quitting).
+fn setup_tray(
+    app: &Application,
+    windows: &Arc<Mutex<HashMap<String, WindowEntry>>>,
+    base_uri: &str,
+) {
+    let mut menu = gtk::Menu::new();
+
+    // "Nova janela" (blank widget)
+    let mi_new = gtk::MenuItem::with_label("🪟 Nova janela");
+    {
+        let w = windows.clone();
+        let b = base_uri.to_string();
+        let a = app.clone();
+        mi_new.connect_activate(move |_| {
+            let state = WindowState {
+                id: String::new(),
+                title: "🪟 Nova Janela".into(),
+                jsx: widget_renderer::blank_widget(),
+                width: 600,
+                height: 400,
+                x: 120,
+                y: 120,
+            };
+            if let Err(e) = create_window_impl(&w, &a, &b, &state) {
+                log::error!("tray: falha ao criar janela: {}", e);
+            }
+        });
+    }
+    menu.append(&mi_new);
+
+    // "Janela de exemplo" (cardápio com emojis)
+    let mi_example = gtk::MenuItem::with_label("🍕 Janela de exemplo");
+    {
+        let w = windows.clone();
+        let b = base_uri.to_string();
+        let a = app.clone();
+        mi_example.connect_activate(move |_| {
+            let state = WindowState {
+                id: String::new(),
+                title: "🍕 Exemplo".into(),
+                jsx: widget_renderer::exemplo_cardapio(),
+                width: 420,
+                height: 300,
+                x: 140,
+                y: 140,
+            };
+            if let Err(e) = create_window_impl(&w, &a, &b, &state) {
+                log::error!("tray: falha ao criar exemplo: {}", e);
+            }
+        });
+    }
+    menu.append(&mi_example);
+
+    menu.append(&gtk::SeparatorMenuItem::new());
+
+    // "Listar janelas"
+    let mi_list = gtk::MenuItem::with_label("📋 Listar janelas");
+    {
+        let w = windows.clone();
+        mi_list.connect_activate(move |_| {
+            let n = w.lock().map(|m| m.len()).unwrap_or(0);
+            log::info!("Janelas ativas no tray: {}", n);
+        });
+    }
+    menu.append(&mi_list);
+
+    // "Sair"
+    let mi_quit = gtk::MenuItem::with_label("🚪 Sair");
+    {
+        let a = app.clone();
+        mi_quit.connect_activate(move |_| {
+            log::info!("Saindo pelo tray");
+            a.quit();
+        });
+    }
+    menu.append(&mi_quit);
+
+    menu.show_all();
+
+    // StatusNotifierItem via libappindicator (works on KDE Plasma 6 / GNOME)
+    let mut indicator =
+        libappindicator::AppIndicator::new("rust-canvas-windows", "applications-development");
+    indicator.set_status(libappindicator::AppIndicatorStatus::Active);
+    indicator.set_menu(&mut menu);
+    indicator.set_title("Rust Canvas Windows");
+    indicator.set_icon("applications-development");
+    // Keep it alive for the process lifetime (standard tray pattern).
+    std::mem::forget(indicator);
+
+    log::info!("System tray ativo");
 }

@@ -25,3 +25,6 @@ uuid = { version = "1", features = ["v4"] }
 
 # Glib (re-exported by gtk, but we need it explicitly for Continue, idle_add)
 glib = "0.18"
+
+# System tray (StatusNotifierItem) — libappindicator3 from the system
+libappindicator = "0.9"

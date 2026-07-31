@@ -74,6 +74,20 @@ EOF
 
 Exemplos prontos em `examples/` (`contador.jsx`, `html-cru.html`).
 
+## System Tray
+
+O app fica na bandeja do sistema (StatusNotifierItem via libappindicator —
+funciona no KDE Plasma 6 e GNOME). Fechar todas as janelas **não** encerra o
+app: ele continua no tray, de onde você pode:
+
+- 🪟 **Nova janela** — cria uma janela blank (mesma ação do clique)
+- 🍕 **Janela de exemplo** — o widget do cardápio
+- 📋 **Listar janelas** — loga a contagem de janelas ativas
+- 🚪 **Sair** — encerra o app (também fecha janelas e o servidor IPC)
+
+Dependência de sistema (Arch/CachyOS): `libappindicator` (fornece o
+`appindicator3-0.1.pc`).
+
 ## API
 
 Todas as requisições via HTTP POST para `http://localhost:8081`.

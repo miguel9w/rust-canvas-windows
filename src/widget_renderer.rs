@@ -90,6 +90,19 @@ pub fn blank_widget() -> String {
 }"#.to_string()
 }
 
+/// A slightly richer demo widget (menu example / quick showcase).
+pub fn exemplo_cardapio() -> String {
+    r#"function Widget() {
+  const itens = ['🍕 Pizza', '🍔 Burger', '🍣 Sushi', '🌮 Taco'];
+  return React.createElement('div', { style: { padding: 24, fontFamily: 'sans-serif' } },
+    React.createElement('h2', { style: { color: '#8b5cf6', marginBottom: 12 } }, 'Cardapio'),
+    React.createElement('ul', { style: { listStyle: 'none', padding: 0 } },
+      itens.map(i => React.createElement('li', { key: i, style: { background: '#1e1e2e', margin: '8px 0', padding: '12px 16px', borderRadius: 8, color: '#cdd6f4' } }, i))
+    ),
+  );
+}"#.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
