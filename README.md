@@ -28,8 +28,9 @@ OpenCode/Pi Agent ──HTTP POST──▶ Rust App (:8081)
 # Build
 cargo build --release
 
-# Rodar
-cargo run --release
+# Rodar (X11/XWayland + software rendering do WebKit — necessário em
+# setups NVIDIA/Wayland: sem essas env vars as janelas podem ficar pretas)
+GDK_BACKEND=x11 WEBKIT_DISABLE_DMABUF_RENDERER=1 cargo run --release
 
 # Criar uma janela via API
 curl -X POST http://localhost:8081 \
@@ -40,6 +41,12 @@ curl -X POST http://localhost:8081 \
     "jsx": "function Widget() { const [c, setC] = React.useState(0); return React.createElement(\"button\", { onClick: () => setC(c+1) }, \"Clicks: \" + c); }"
   }'
 ```
+
+> **Offline por padrão:** React 18 e Babel ficam em `vendor/` e são servidos
+> pelo próprio app (`GET /vendor/*`). Sem dependência de CDN/network.
+>
+> **HTML cru:** se o `jsx` começar com `<`, o conteúdo é carregado como HTML
+> literal (sem template React) — útil para protótipos rápidos.
 
 ## API
 
