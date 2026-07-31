@@ -335,6 +335,7 @@ fn open_main_window(
     config: &std::sync::Arc<std::sync::Mutex<crate::config::Config>>,
     events: &std::sync::Arc<crate::events::EventLog>,
 ) {
+    log::info!("open_main_window: criando a janela principal");
     let win = ApplicationWindow::new(app);
     win.set_title("WindowLoom");
     win.set_default_size(520, 380);
@@ -502,7 +503,15 @@ fn setup_tray(
         let c = config.clone();
         let e = events.clone();
         mi_main.connect_activate(move |_| {
-            open_main_window(&a, &w, &b, &c, &e);
+            log::info!("tray: clique em 'Janela principal'");
+            // O activate do MenuItem via dbusmenu pode disparar fora da main
+            // thread — agendar no main loop (GTK exige a main thread para
+            // criar/mostrar janelas e para o timeout_add_local).
+            let (a2, w2, b2, c2, e2) = (a.clone(), w.clone(), b.clone(), c.clone(), e.clone());
+            glib::idle_add_local(move || {
+                open_main_window(&a2, &w2, &b2, &c2, &e2);
+                glib::ControlFlow::Break
+            });
         });
     }
     menu.append(&mi_main);
