@@ -1,0 +1,27 @@
+[package]
+name = "rust-canvas-windows"
+version = "0.1.0"
+edition = "2024"
+description = "Native desktop windows rendering dynamic JSX widgets — like IAS-CANVAS-TOOL but real OS windows"
+
+[dependencies]
+# Simple HTTP server for IPC (avoids Send+Sync issues with GTK)
+tiny_http = "0.12"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# GTK3 + WebKit for native windows with webview (system has webkit2gtk-4.1)
+gtk = "0.18"
+webkit2gtk = "2.0"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# UUID for window IDs
+uuid = { version = "1", features = ["v4"] }
+
+# Glib (re-exported by gtk, but we need it explicitly for Continue, idle_add)
+glib = "0.18"
