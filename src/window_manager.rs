@@ -9,8 +9,8 @@ use webkit2gtk::{UserContentManagerExt, WebContext, WebView, WebViewExt};
 use crate::types::WindowState;
 use crate::widget_renderer;
 
-/// Caminho do favicon do app (gerado em `assets/rust-canvas.png`).
-const APP_ICON_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/rust-canvas.png");
+/// Caminho do ícone do app (gerado em `assets/windowloom.png`).
+const APP_ICON_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/windowloom.png");
 
 /// Carrega o pixbuf do favicon (PNG pequeno — carregado por janela).
 fn app_icon_pixbuf() -> Option<gtk::gdk_pixbuf::Pixbuf> {
@@ -44,7 +44,7 @@ impl WindowManager {
         // flag, uma 2ª instância delega o activate para a 1ª (recria tray e
         // janelas — indicador duplicado) e crasha ao sair.
         let app = Application::new(
-            Some("com.canvas.rust-windows"),
+            Some("com.windowloom.app"),
             gtk::gio::ApplicationFlags::NON_UNIQUE,
         );
         Self {
@@ -430,17 +430,16 @@ fn setup_tray(
     // StatusNotifierItem via libappindicator (works on KDE Plasma 6 / GNOME).
     // O id precisa ser único por processo: uma 2ª instância com o mesmo id
     // faz o libayatana crashar (segfault no registro do indicador).
-    let indicator_id = format!("rust-canvas-windows-{}", std::process::id());
-    let mut indicator =
-        libappindicator::AppIndicator::new(&indicator_id, "rust-canvas");
+    let indicator_id = format!("windowloom-{}", std::process::id());
+    let mut indicator = libappindicator::AppIndicator::new(&indicator_id, "windowloom");
     indicator.set_status(libappindicator::AppIndicatorStatus::Active);
     indicator.set_menu(&mut menu);
-    indicator.set_title("Rust Canvas Windows");
+    indicator.set_title("WindowLoom");
     // Ícone próprio do app (assets/) em vez do ícone de tema ("martelo")
     if let Some(dir) = std::path::Path::new(APP_ICON_PATH).parent() {
         indicator.set_icon_theme_path(dir.to_string_lossy().as_ref());
     }
-    indicator.set_icon("rust-canvas");
+    indicator.set_icon("windowloom");
     // Keep it alive for the process lifetime (standard tray pattern).
     std::mem::forget(indicator);
 

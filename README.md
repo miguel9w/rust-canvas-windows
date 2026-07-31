@@ -1,4 +1,4 @@
-# 🪟 Rust Canvas Windows
+# WindowLoom
 
 Native desktop windows renderizando JSX dinamicamente — como o IAS-CANVAS-TOOL, mas em **janelas reais do sistema operacional**.
 

@@ -116,7 +116,7 @@ pub fn blank_widget() -> String {
     r#"function Widget(props) {
   const [count, setCount] = React.useState(0);
   return React.createElement('div', { style: { textAlign: 'center', padding: '40px 20px' } },
-    React.createElement('h2', { style: { color: '#6366f1', marginBottom: '16px', fontSize: '18px' } }, 'Rust Canvas Window'),
+    React.createElement('h2', { style: { color: '#6366f1', marginBottom: '16px', fontSize: '18px' } }, 'WindowLoom'),
     React.createElement('p', { style: { color: '#a1a1aa', marginBottom: '24px', fontSize: '13px' } }, 'Native desktop widget — edit the JSX to get started'),
     React.createElement('button', {
       onClick: () => setCount(c => c + 1),

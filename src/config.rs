@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// Configurações do app, persistidas em
-/// `~/.config/rust-canvas-windows/config.json`.
+/// `~/.config/windowloom/config.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// Largura padrão das janelas novas (file chooser)
@@ -33,11 +33,25 @@ fn config_home() -> PathBuf {
 }
 
 pub fn config_path() -> PathBuf {
-    config_home().join("rust-canvas-windows").join("config.json")
+    config_home().join("windowloom").join("config.json")
+}
+
+/// Nome antigo do diretório de config (pré-WindowLoom) — removido ao migrar.
+fn legacy_config_dir() -> PathBuf {
+    config_home().join("rust-canvas-windows")
 }
 
 pub fn load() -> Config {
-    std::fs::read_to_string(config_path())
+    let new_path = config_path();
+    let legacy = legacy_config_dir().join("config.json");
+    // Migração: copia a config antiga (se existir) para o diretório novo
+    if !new_path.exists() && legacy.exists() {
+        if let Ok(cfg) = std::fs::read_to_string(&legacy).and_then(|s| Ok(serde_json::from_str::<Config>(&s).unwrap_or_default())) {
+            let _ = save(&cfg);
+        }
+    }
+    let _ = std::fs::remove_dir_all(&legacy_config_dir());
+    std::fs::read_to_string(new_path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default()
@@ -52,17 +66,19 @@ pub fn save(cfg: &Config) -> Result<(), String> {
     std::fs::write(&path, json).map_err(|e| e.to_string())
 }
 
-/// Cria/remove `~/.config/autostart/rust-canvas-windows.desktop`.
+/// Cria/remove `~/.config/autostart/windowloom.desktop`.
 /// O Exec usa `env` para injetar as env vars necessárias (X11 + software
 /// rendering do WebKit) — sem elas as janelas ficam pretas.
 pub fn apply_autostart(enabled: bool) -> Result<(), String> {
-    let desktop = config_home().join("autostart").join("rust-canvas-windows.desktop");
+    let desktop = config_home().join("autostart").join("windowloom.desktop");
+    // Remove o autostart com o nome antigo (pré-WindowLoom), se existir
+    let _ = std::fs::remove_file(config_home().join("autostart").join("rust-canvas-windows.desktop"));
     if enabled {
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
         let content = format!(
             "[Desktop Entry]\n\
              Type=Application\n\
-             Name=Rust Canvas Windows\n\
+             Name=WindowLoom\n\
              Comment=Janelas JSX nativas\n\
              Exec=env GDK_BACKEND=x11 WEBKIT_DISABLE_DMABUF_RENDERER=1 {}\n\
              X-GNOME-Autostart-enabled=true\n",

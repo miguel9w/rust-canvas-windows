@@ -34,7 +34,7 @@ pub fn start_ipc_server(
 ) -> Result<(), String> {
     let addr = format!("127.0.0.1:{}", port);
     let server = Server::http(&addr).map_err(|e| format!("Failed to bind: {}", e))?;
-    log::info!("Rust Canvas IPC server listening on http://{}", addr);
+    log::info!("WindowLoom IPC server listening on http://{}", addr);
 
     thread::spawn(move || {
         for mut request in server.incoming_requests() {

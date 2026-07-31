@@ -18,7 +18,7 @@ fn main() {
         .unwrap_or(8081);
 
     println!("╭──────────────────────────────────────╮");
-    println!("│  Rust Canvas Windows                  │");
+    println!("│  WindowLoom                           │");
     println!("│  Native desktop windows for JSX      │");
     println!("│                                      │");
     println!("│  POST http://127.0.0.1:{}         │", port);
