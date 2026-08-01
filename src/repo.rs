@@ -282,6 +282,7 @@ mod tests {
 
     #[test]
     fn extrai_e_escaneia_por_subpastas() {
+        let _env = crate::TEST_ENV_LOCK.lock().unwrap();
         let dir = std::env::temp_dir().join("wl-repo-test-sub");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -315,6 +316,7 @@ mod tests {
 
     #[test]
     fn usa_index_json_com_prioridade() {
+        let _env = crate::TEST_ENV_LOCK.lock().unwrap();
         let dir = std::env::temp_dir().join("wl-repo-test-idx");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -341,6 +343,7 @@ mod tests {
 
     #[test]
     fn usa_index_json_formato_ias() {
+        let _env = crate::TEST_ENV_LOCK.lock().unwrap();
         let dir = std::env::temp_dir().join("wl-repo-test-ias");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -380,6 +383,7 @@ mod tests {
 
     #[test]
     fn zips_homonimos_nao_colidem_no_cache() {
+        let _env = crate::TEST_ENV_LOCK.lock().unwrap();
         // Dois zips com o mesmo nome em pastas diferentes → destinos
         // distintos (o hash do caminho entra no nome do diretório).
         let dir = std::env::temp_dir().join("wl-repo-test-hash");

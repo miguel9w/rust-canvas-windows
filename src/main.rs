@@ -1,10 +1,5 @@
-mod config;
-mod events;
-mod ipc_server;
-mod repo;
-mod types;
-mod widget_renderer;
-mod window_manager;
+//! App WindowLoom — binário GTK (tray + hub + janelas JSX).
+//! A lógica vive na lib `rust_canvas_windows`; aqui só o bootstrap.
 
 use std::sync::mpsc;
 
@@ -43,31 +38,37 @@ fn main() {
     println!();
 
     // Channel: HTTP server thread -> GTK main thread
-    let (tx, rx) = mpsc::channel::<ipc_server::GtkCommand>();
+    let (tx, rx) = mpsc::channel::<rust_canvas_windows::ipc_server::GtkCommand>();
 
     // Initialize window manager on the main thread.
     // Base URI points at the local IPC server so `/vendor/*` scripts
     // (React/Babel bundles) are served by the app itself — no CDN, no network.
     let base_uri = format!("http://127.0.0.1:{}/", port);
-    let config = std::sync::Arc::new(std::sync::Mutex::new(config::load()));
-    let events = std::sync::Arc::new(events::EventLog::new());
-    let wm = window_manager::WindowManager::new(base_uri, config, events.clone());
+    let config = std::sync::Arc::new(std::sync::Mutex::new(
+        rust_canvas_windows::config::load(),
+    ));
+    let events = std::sync::Arc::new(rust_canvas_windows::events::EventLog::new());
+    let wm = rust_canvas_windows::window_manager::WindowManager::new(
+        base_uri,
+        config,
+        events.clone(),
+    );
 
     // No startup windows: the app lives in the system tray. Open widgets
     // from the tray menu (Abrir widget... / Configurações).
-    let startup_windows: Vec<types::WindowState> = vec![];
+    let startup_windows: Vec<rust_canvas_windows::types::WindowState> = vec![];
 
     // Spawn HTTP server in background thread
     let tx_clone = tx.clone();
     std::thread::spawn(move || {
-        if let Err(e) = ipc_server::start_ipc_server(port, tx_clone, events) {
+        if let Err(e) = rust_canvas_windows::ipc_server::start_ipc_server(port, tx_clone, events) {
             log::error!("IPC server failed: {}", e);
         }
     });
 
     // GTK main loop — processes IPC commands via idle_add
     // Use a raw pointer since WindowManager contains GTK types (not Send)
-    let wm_ptr: *const window_manager::WindowManager = &wm;
+    let wm_ptr: *const rust_canvas_windows::window_manager::WindowManager = &wm;
 
     glib::idle_add_local(move || {
         // SAFETY: wm_ptr is only accessed from the GTK main thread
@@ -75,11 +76,13 @@ fn main() {
 
         while let Ok(cmd) = rx.try_recv() {
             match cmd {
-                ipc_server::GtkCommand::CreateWindow(c, reply) => {
-                    let state = types::WindowState {
+                rust_canvas_windows::ipc_server::GtkCommand::CreateWindow(c, reply) => {
+                    let state = rust_canvas_windows::types::WindowState {
                         id: c.id.unwrap_or_default(),
                         title: c.title.unwrap_or_else(|| "Widget".into()),
-                        jsx: c.jsx.unwrap_or_else(crate::widget_renderer::blank_widget),
+                        jsx: c
+                            .jsx
+                            .unwrap_or_else(rust_canvas_windows::widget_renderer::blank_widget),
                         width: c.width.unwrap_or(600),
                         height: c.height.unwrap_or(400),
                         x: c.x.unwrap_or(100),
@@ -96,7 +99,7 @@ fn main() {
                         }
                     }
                 }
-                ipc_server::GtkCommand::UpdateWindow(c, reply) => {
+                rust_canvas_windows::ipc_server::GtkCommand::UpdateWindow(c, reply) => {
                     if let (Some(id), Some(jsx)) = (c.id, c.jsx) {
                         match wm.update_window(&id, &jsx) {
                             Ok(()) => {
@@ -105,8 +108,8 @@ fn main() {
                             }
                             Err(e) => {
                                 log::error!("Failed to update window: {}", e);
-                                let _ =
-                                    reply.send(serde_json::json!({"success": false, "error": e}));
+                                let _ = reply
+                                    .send(serde_json::json!({"success": false, "error": e}));
                             }
                         }
                     } else {
@@ -114,7 +117,7 @@ fn main() {
                             .send(serde_json::json!({"success": false, "error": "id e jsx são obrigatórios"}));
                     }
                 }
-                ipc_server::GtkCommand::CloseWindow(c, reply) => {
+                rust_canvas_windows::ipc_server::GtkCommand::CloseWindow(c, reply) => {
                     if let Some(id) = c.id {
                         match wm.close_window(&id) {
                             Ok(()) => {
@@ -133,20 +136,22 @@ fn main() {
                         );
                     }
                 }
-                ipc_server::GtkCommand::ListWindows(reply) => {
+                rust_canvas_windows::ipc_server::GtkCommand::ListWindows(reply) => {
                     let windows = wm.list_windows();
                     log::info!("Active windows: {}", windows.len());
                     let list: Vec<serde_json::Value> = windows
                         .iter()
-                        .map(|w| serde_json::json!({"id": w.id, "title": w.title, "width": w.width, "height": w.height}))
+                        .map(|w| {
+                            serde_json::json!({"id": w.id, "title": w.title, "width": w.width, "height": w.height})
+                        })
                         .collect();
                     let _ = reply.send(serde_json::json!({"success": true, "windows": list}));
                 }
-                ipc_server::GtkCommand::OpenMainWindow(reply) => {
+                rust_canvas_windows::ipc_server::GtkCommand::OpenMainWindow(reply) => {
                     wm.open_main_window();
                     let _ = reply.send(serde_json::json!({"success": true}));
                 }
-                ipc_server::GtkCommand::Shutdown => {
+                rust_canvas_windows::ipc_server::GtkCommand::Shutdown => {
                     log::info!("Shutting down...");
                     return glib::ControlFlow::Break;
                 }

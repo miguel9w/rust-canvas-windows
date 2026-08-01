@@ -520,7 +520,8 @@ fn open_main_window(
     let page_events = gtk::ListBox::new();
     notebook.append_page(&page_events, Some(&gtk::Label::new(Some("Eventos"))));
 
-    // Repo: popula os embutidos (modelos) como categoria fixa
+    // Repo: popula os embutidos (modelos) + pacotes instalados do
+    // `windowloom pkg` como categorias fixas
     let embutidos = crate::repo::RepoCategoria {
         nome: "Embutidos".into(),
         widgets: widget_renderer::modelos()
@@ -528,10 +529,14 @@ fn open_main_window(
             .map(|(nome, f)| crate::repo::RepoWidget::embutido(nome.to_string(), f()))
             .collect(),
     };
+    let mut todas = vec![embutidos.clone()];
+    if let Some(instalados) = crate::pkg::instalados_categoria() {
+        todas.push(instalados);
+    }
     populate_repo_categorias(
         app,
         &repo_vbox,
-        &[embutidos.clone()],
+        &todas,
         &windows,
         &base_uri,
         &config,

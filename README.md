@@ -78,6 +78,37 @@ windowloom events [n]               # últimos n eventos do appBus
 # Porta: --port N ou RUST_CANVAS_PORT (default 8081)
 ```
 
+## Package manager (`windowloom pkg`)
+
+Instala, lista, atualiza e abre pacotes de widgets. Os instalados aparecem
+na aba **Repo** do hub (categorias fixas) e abrem pelo mesmo mecanismo dos
+widgets da aba (entry JSX/HTML).
+
+```bash
+windowloom pkg list                     # instalados
+windowloom pkg search <termo>           # busca nos registries
+windowloom pkg info <pacote>            # detalhes
+windowloom pkg install <nome|arquivo|url|dir>
+windowloom pkg remove <pacote>
+windowloom pkg update                   # sincroniza índices dos registries
+windowloom pkg upgrade [pacote]         # atualiza um (ou todos)
+windowloom pkg repo list                # fontes configuradas
+windowloom pkg repo add <nome> <caminho|url>
+windowloom pkg repo remove <nome>
+windowloom pkg create <dir> [-o saida.wlpkg]
+windowloom pkg open <pacote> [--port N]
+```
+
+**Formatos:** `.wlpkg` (zip com `manifest.json`), `.jsx`/`.html` avulso,
+URL ou diretório. **Registries:** local (dir com `index.json`) ou HTTP(S).
+Na 1ª execução o `widgets-database` do IAS-CANVAS-TOOL é registrado
+automaticamente como fonte local `ias-canvas`.
+
+Instalação em `~/.local/share/windowloom/pkgs/`; índice em
+`~/.local/share/windowloom/installed.json`; registries em
+`~/.config/windowloom/repos.json`. Cada pacote é um diretório com
+`manifest.json` + entry (o entry preserva o caminho relativo do registry).
+
 > O script `scripts/widget.sh` (bash) continua disponível como alternativa
 > sem compilação — mesma API.
 
