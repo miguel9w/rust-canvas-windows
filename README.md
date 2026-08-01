@@ -133,8 +133,12 @@ tray. Fechar todas as janelas também não encerra o app. No menu do tray:
 - **Janela principal** — o hub de comando, com HeaderBar + menubar e 3 abas:
   - **Janelas** — lista das abertas com ações (Topo / Fechar) e duplo-clique
     pra trazer à frente; menu Arquivo tem "Fechar todas as janelas"
-  - **Modelos** — kit de widgets com 1 clique: Relógio, Contador, Gráfico de
-    barras, Gráfico de linha, Tabela e Formulário (que emite no appBus)
+  - **Repo** — widgets por categoria com 1 clique: kit embutido (Relógio,
+    Contador, Gráfico de barras, Gráfico de linha, Tabela e Formulário, que
+    emite no appBus) + **zip de widgets** (botão "Selecionar zip de
+    widgets..."): extrai `.jsx`/`.html` e usa o `index.json` do zip pra
+    separar por categoria (fallback: subpastas = categorias, raiz = "Geral").
+    O zip fica salvo na config e recarrega ao reabrir o hub.
   - **Eventos** — feed ao vivo do que os widgets emitiram no appBus
   - Atalhos: **Ctrl+N** (nova janela), **Ctrl+Q** (sair)
   - também via `windowloom main`

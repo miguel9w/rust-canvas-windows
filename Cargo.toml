@@ -1,6 +1,6 @@
 [package]
 name = "rust-canvas-windows"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Native desktop windows rendering dynamic JSX widgets — like IAS-CANVAS-TOOL but real OS windows"
 
@@ -31,3 +31,6 @@ libappindicator = "0.9"
 
 # HTTP client para o CLI (src/bin/windowloom.rs)
 ureq = { version = "2", features = ["json"] }
+
+# Leitura de zips de repositórios de widgets (aba Repo do hub)
+zip = "2"

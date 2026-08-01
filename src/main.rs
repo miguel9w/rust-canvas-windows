@@ -1,6 +1,7 @@
 mod config;
 mod events;
 mod ipc_server;
+mod repo;
 mod types;
 mod widget_renderer;
 mod window_manager;
@@ -104,7 +105,8 @@ fn main() {
                             }
                             Err(e) => {
                                 log::error!("Failed to update window: {}", e);
-                                let _ = reply.send(serde_json::json!({"success": false, "error": e}));
+                                let _ =
+                                    reply.send(serde_json::json!({"success": false, "error": e}));
                             }
                         }
                     } else {
@@ -121,11 +123,14 @@ fn main() {
                             }
                             Err(e) => {
                                 log::error!("Failed to close window: {}", e);
-                                let _ = reply.send(serde_json::json!({"success": false, "error": e}));
+                                let _ =
+                                    reply.send(serde_json::json!({"success": false, "error": e}));
                             }
                         }
                     } else {
-                        let _ = reply.send(serde_json::json!({"success": false, "error": "id é obrigatório"}));
+                        let _ = reply.send(
+                            serde_json::json!({"success": false, "error": "id é obrigatório"}),
+                        );
                     }
                 }
                 ipc_server::GtkCommand::ListWindows(reply) => {

@@ -11,6 +11,9 @@ pub struct Config {
     pub height: u32,
     /// Iniciar o app junto com o login (autostart .desktop)
     pub autostart: bool,
+    /// Caminho do último zip de widgets carregado na aba Repo do hub
+    #[serde(default)]
+    pub repo_zip: Option<String>,
 }
 
 impl Default for Config {
@@ -19,6 +22,7 @@ impl Default for Config {
             width: 600,
             height: 400,
             autostart: false,
+            repo_zip: None,
         }
     }
 }
@@ -46,7 +50,9 @@ pub fn load() -> Config {
     let legacy = legacy_config_dir().join("config.json");
     // Migração: copia a config antiga (se existir) para o diretório novo
     if !new_path.exists() && legacy.exists() {
-        if let Ok(cfg) = std::fs::read_to_string(&legacy).and_then(|s| Ok(serde_json::from_str::<Config>(&s).unwrap_or_default())) {
+        if let Ok(cfg) = std::fs::read_to_string(&legacy)
+            .and_then(|s| Ok(serde_json::from_str::<Config>(&s).unwrap_or_default()))
+        {
             let _ = save(&cfg);
         }
     }

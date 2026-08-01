@@ -121,8 +121,8 @@ impl WindowManager {
     pub fn update_window(&self, id: &str, new_jsx: &str) -> Result<(), String> {
         let map = self.windows.lock().map_err(|e| e.to_string())?;
         if let Some(entry) = map.get(id) {
-            let config_json =
-                serde_json::to_string(&*self.config.lock().unwrap()).unwrap_or_else(|_| "{}".into());
+            let config_json = serde_json::to_string(&*self.config.lock().unwrap())
+                .unwrap_or_else(|_| "{}".into());
             let html = widget_renderer::build_widget_html(new_jsx, "{}", &config_json);
             entry.webview.load_html(&html, None);
             Ok(())
@@ -240,7 +240,10 @@ fn create_window_impl(
         ucm.connect_script_message_received(Some("configBus"), move |_, result| {
             let payload = result.js_value().map(|v| v.to_string()).unwrap_or_default();
             match serde_json::from_str::<crate::config::Config>(&payload) {
-                Ok(new_cfg) => {
+                Ok(mut new_cfg) => {
+                    // O widget de Configurações só manda width/height/autostart —
+                    // preserva o repo_zip (selecionado na aba Repo do hub).
+                    new_cfg.repo_zip = cfg.lock().unwrap().repo_zip.clone();
                     if let Err(e) = crate::config::apply_autostart(new_cfg.autostart) {
                         log::error!("config: autostart falhou: {}", e);
                     }
@@ -437,7 +440,9 @@ fn open_main_window(
             let dlg = gtk::AboutDialog::new();
             dlg.set_program_name("WindowLoom");
             dlg.set_version(Some(env!("CARGO_PKG_VERSION")));
-            dlg.set_comments(Some("Janelas nativas com widgets JSX — controladas por agente."));
+            dlg.set_comments(Some(
+                "Janelas nativas com widgets JSX — controladas por agente.",
+            ));
             dlg.set_website(Some("https://github.com/miguel9w/windowloom"));
             if let Some(ic) = &icon {
                 dlg.set_logo(Some(ic));
@@ -501,45 +506,118 @@ fn open_main_window(
     let page_windows = gtk::ListBox::new();
     notebook.append_page(&page_windows, Some(&gtk::Label::new(Some("Janelas"))));
 
-    let page_modelos = gtk::FlowBox::new();
-    page_modelos.set_max_children_per_line(3);
-    page_modelos.set_selection_mode(gtk::SelectionMode::None);
-    notebook.append_page(&page_modelos, Some(&gtk::Label::new(Some("Modelos"))));
+    // Repo — seleção de zip + widgets por categoria
+    let page_repo_scroll = gtk::ScrolledWindow::new(gtk::Adjustment::NONE, gtk::Adjustment::NONE);
+    page_repo_scroll.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Automatic);
+    let repo_outer = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    let btn_zip = gtk::Button::with_label("Selecionar zip de widgets...");
+    repo_outer.pack_start(&btn_zip, false, false, 0);
+    let repo_vbox = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    repo_outer.pack_start(&repo_vbox, true, true, 0);
+    page_repo_scroll.add(&repo_outer);
+    notebook.append_page(&page_repo_scroll, Some(&gtk::Label::new(Some("Repo"))));
 
     let page_events = gtk::ListBox::new();
     notebook.append_page(&page_events, Some(&gtk::Label::new(Some("Eventos"))));
 
-    // Modelos — kit de widgets com 1 clique (populado uma vez)
-    for (nome, jsx_fn) in widget_renderer::modelos() {
-        let btn = gtk::Button::with_label(nome);
-        let jsx = jsx_fn();
+    // Repo: popula os embutidos (modelos) como categoria fixa
+    let embutidos = crate::repo::RepoCategoria {
+        nome: "Embutidos".into(),
+        widgets: widget_renderer::modelos()
+            .into_iter()
+            .map(|(nome, f)| crate::repo::RepoWidget::embutido(nome.to_string(), f()))
+            .collect(),
+    };
+    populate_repo_categorias(
+        app,
+        &repo_vbox,
+        &[embutidos.clone()],
+        &windows,
+        &base_uri,
+        &config,
+        &events,
+    );
+
+    // Se a config tem um zip carregado, recarrega (persistência entre abas)
+    if let Some(zip) = config.lock().unwrap().repo_zip.clone() {
+        if let Ok(dest) = crate::repo::extrair_zip(std::path::Path::new(&zip)) {
+            let cats = crate::repo::scan_repo(&dest);
+            let mut todas = vec![embutidos];
+            todas.extend(cats);
+            populate_repo_categorias(
+                app, &repo_vbox, &todas, &windows, &base_uri, &config, &events,
+            );
+        }
+    }
+
+    // Botão: selecionar zip → extrair → escanear → popular
+    {
         let w = windows.clone();
         let b = base_uri.to_string();
         let a = app.clone();
         let c = config.clone();
         let e = events.clone();
-        let nome_owned = nome.to_string();
-        btn.connect_clicked(move |_| {
-            let (width, height) = {
-                let cfg = c.lock().unwrap();
-                (cfg.width, cfg.height)
-            };
-            let state = WindowState {
-                id: String::new(),
-                title: nome_owned.clone(),
-                jsx: jsx.clone(),
-                width,
-                height,
-                x: 120,
-                y: 120,
-            };
-            if let Err(err) = create_window_impl(&w, &a, &b, &c, &e, &state) {
-                log::error!("modelo {}: {}", nome_owned, err);
-            }
+        let vb = repo_vbox.clone();
+        btn_zip.connect_clicked(move |_| {
+            let dlg = gtk::FileChooserDialog::new(
+                Some("Selecionar zip de widgets"),
+                None::<&gtk::Window>,
+                gtk::FileChooserAction::Open,
+            );
+            dlg.add_button("Cancelar", gtk::ResponseType::Cancel);
+            dlg.add_button("Abrir", gtk::ResponseType::Accept);
+            let filter = gtk::FileFilter::new();
+            filter.set_name(Some("Zips de widgets (*.zip)"));
+            filter.add_pattern("*.zip");
+            dlg.add_filter(filter);
+            let all = gtk::FileFilter::new();
+            all.set_name(Some("Todos os arquivos"));
+            all.add_pattern("*");
+            dlg.add_filter(all);
+
+            let (w2, b2, a2, c2, e2, vb2) = (
+                w.clone(),
+                b.clone(),
+                a.clone(),
+                c.clone(),
+                e.clone(),
+                vb.clone(),
+            );
+            dlg.connect_response(move |dlg, resp| {
+                if resp == gtk::ResponseType::Accept {
+                    if let Some(path) = dlg.file().and_then(|f| f.path()) {
+                        log::info!("repo: selecionado {}", path.display());
+                        match crate::repo::extrair_zip(&path) {
+                            Ok(dest) => {
+                                let cats = crate::repo::scan_repo(&dest);
+                                log::info!("repo: {} categorias do zip", cats.len());
+                                // Persiste o zip na config (recarrega ao reabrir)
+                                {
+                                    let mut cfg = c2.lock().unwrap();
+                                    cfg.repo_zip = Some(path.to_string_lossy().into_owned());
+                                    let _ = crate::config::save(&cfg);
+                                }
+                                let emb = crate::repo::RepoCategoria {
+                                    nome: "Embutidos".into(),
+                                    widgets: widget_renderer::modelos()
+                                        .into_iter()
+                                        .map(|(nome, f)| {
+                                            crate::repo::RepoWidget::embutido(nome.to_string(), f())
+                                        })
+                                        .collect(),
+                                };
+                                let mut todas = vec![emb];
+                                todas.extend(cats);
+                                populate_repo_categorias(&a2, &vb2, &todas, &w2, &b2, &c2, &e2);
+                            }
+                            Err(err) => log::error!("repo: {}", err),
+                        }
+                    }
+                }
+                dlg.close();
+            });
+            dlg.show_all();
         });
-        let child = gtk::FlowBoxChild::new();
-        child.add(&btn);
-        page_modelos.add(&child);
     }
 
     let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -641,15 +719,14 @@ fn open_main_window(
         }
         let recent = ev.recent(15);
         if recent.is_empty() {
-            let lbl = gtk::Label::new(Some("(sem eventos — emita algo num widget, ex: Formulário)"));
+            let lbl = gtk::Label::new(Some(
+                "(sem eventos — emita algo num widget, ex: Formulário)",
+            ));
             page_events.add(&lbl);
         }
         for rec in recent {
             let row = gtk::ListBoxRow::new();
-            let lbl = gtk::Label::new(Some(&format!(
-                "{} :: {} — {}",
-                rec.window, rec.evt, rec.ts
-            )));
+            let lbl = gtk::Label::new(Some(&format!("{} :: {} — {}", rec.window, rec.evt, rec.ts)));
             lbl.set_xalign(0.0);
             row.add(&lbl);
             page_events.add(&row);
@@ -816,6 +893,75 @@ fn setup_tray(
     std::mem::forget(indicator);
 
     log::info!("System tray ativo");
+}
+
+/// Preenche a aba Repo: categorias com botões de widgets (clique cria a
+/// janela — lê o arquivo ou usa o JSX embutido).
+fn populate_repo_categorias(
+    app: &Application,
+    vbox: &gtk::Box,
+    categorias: &[crate::repo::RepoCategoria],
+    windows: &Arc<Mutex<HashMap<String, WindowEntry>>>,
+    base_uri: &str,
+    config: &std::sync::Arc<std::sync::Mutex<crate::config::Config>>,
+    events: &std::sync::Arc<crate::events::EventLog>,
+) {
+    for child in vbox.children() {
+        vbox.remove(&child);
+    }
+    for cat in categorias {
+        let lbl = gtk::Label::new(Some(&cat.nome));
+        lbl.set_xalign(0.0);
+        lbl.set_markup(&format!("<b>{}</b>", cat.nome));
+        vbox.pack_start(&lbl, false, false, 0);
+
+        let fb = gtk::FlowBox::new();
+        fb.set_max_children_per_line(4);
+        fb.set_selection_mode(gtk::SelectionMode::None);
+        for w in &cat.widgets {
+            let btn = gtk::Button::with_label(&w.nome);
+            let nome = w.nome.clone();
+            let jsx_inline = w.jsx_inline.clone();
+            let path = w.path.clone();
+            let ww = windows.clone();
+            let bb = base_uri.to_string();
+            let aa = app.clone();
+            let cc = config.clone();
+            let ee = events.clone();
+            btn.connect_clicked(move |_| {
+                // JSX: inline (embutidos) ou do arquivo extraído
+                let jsx = match &jsx_inline {
+                    Some(s) => Some(s.clone()),
+                    None => std::fs::read_to_string(&path).ok(),
+                };
+                if let Some(jsx) = jsx {
+                    let (width, height) = {
+                        let cfg = cc.lock().unwrap();
+                        (cfg.width, cfg.height)
+                    };
+                    let state = WindowState {
+                        id: String::new(),
+                        title: nome.clone(),
+                        jsx,
+                        width,
+                        height,
+                        x: 120,
+                        y: 120,
+                    };
+                    if let Err(err) = create_window_impl(&ww, &aa, &bb, &cc, &ee, &state) {
+                        log::error!("repo {}: {}", nome, err);
+                    }
+                } else {
+                    log::error!("repo: não foi possível ler {}", path.display());
+                }
+            });
+            let child = gtk::FlowBoxChild::new();
+            child.add(&btn);
+            fb.add(&child);
+        }
+        vbox.pack_start(&fb, false, false, 0);
+    }
+    vbox.show_all();
 }
 
 /// Reconstrói o submenu "Janelas" com as janelas atuais (título = item;
