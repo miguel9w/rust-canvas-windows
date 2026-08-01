@@ -67,13 +67,12 @@ impl WindowManager {
         let config = self.config.clone();
         let events = self.events.clone();
 
-        // Create a hidden placeholder so GTK doesn't exit
         app.connect_activate(move |app| {
-            let hidden = ApplicationWindow::new(app);
-            hidden.set_default_size(1, 1);
-            hidden.set_opacity(0.0);
-            hidden.set_decorated(false);
-            hidden.show_all();
+            // hold(): impede o run() de retornar quando não há janelas — o
+            // app vive no tray mesmo com todas fechadas. (Sem o placeholder
+            // antigo: a janela 1x1 transparente aparecia no compositor
+            // Wayland.)
+            app.hold();
 
             // Create any startup windows now that the app is active
             for state in &startup {
